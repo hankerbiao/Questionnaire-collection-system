@@ -1,0 +1,105 @@
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, expect, it, vi } from 'vitest'
+import AdminApp from './AdminApp'
+import { adminApi } from './api'
+import type { SubmissionRow, SurveyVersionConfig } from './types'
+
+vi.mock('./api', () => ({ adminApi: {
+  session: vi.fn(), draft: vi.fn(), stats: vi.fn(), submissionCatalog: vi.fn(),
+  submissions: vi.fn(), saveDraft: vi.fn(), publish: vi.fn(), exportUrl: vi.fn(() => '#'),
+} }))
+
+const draft: SurveyVersionConfig = {
+  versionId: 'draft-1', surveyKey: 'dml-v4', version: 0, status: 'draft', revision: 1,
+  title: 'DML 使用体验调研', description: '', roles: [{ id: 'tester', label: '测试人员', description: '' }],
+  pages: [{ id: 'requirements', name: '测试需求', category: '需求与用例', order: 1, enabled: true, features: [{ id: 'requirements-search', name: '搜索', description: '', order: 1, enabled: true }] }],
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  history.replaceState({}, '', '/admin/surveys')
+  vi.mocked(adminApi.session).mockResolvedValue({ username: 'admin' })
+  vi.mocked(adminApi.draft).mockResolvedValue(draft)
+  vi.mocked(adminApi.stats).mockResolvedValue({ total: 0, last7Days: 0, withAttachments: 0 })
+  vi.mocked(adminApi.submissionCatalog).mockResolvedValue({ roles: [], pages: [] })
+  vi.mocked(adminApi.submissions).mockResolvedValue({ items: [] })
+})
+
+it('edits the page and feature catalog', async () => {
+  const user = userEvent.setup()
+  render(<AdminApp />)
+  expect(await screen.findByText('页面目录')).toBeInTheDocument()
+  expect(screen.getByDisplayValue('测试需求')).toBeInTheDocument()
+  expect(screen.getByDisplayValue('搜索')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: /添加功能点/ }))
+  expect(screen.getByDisplayValue('新功能点')).toBeInTheDocument()
+})
+
+it('keeps the newest submission filter response when requests finish out of order', async () => {
+  const user = userEvent.setup()
+  history.replaceState({}, '', '/admin/results')
+  vi.mocked(adminApi.stats).mockResolvedValue({ total: 2, last7Days: 2, withAttachments: 0 })
+  vi.mocked(adminApi.submissionCatalog).mockResolvedValue({
+    roles: [{ id: 'tester', label: '测试人员' }], pages: [],
+  })
+  let resolveFirst!: (value: { items: SubmissionRow[] }) => void
+  let resolveSecond!: (value: { items: SubmissionRow[] }) => void
+  vi.mocked(adminApi.submissions)
+    .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
+    .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve }))
+  const row = (id: string): SubmissionRow => ({
+    id, submissionId: id, surveyId: `survey-${id}`, surveyVersionId: 'version-1',
+    submittedAt: new Date().toISOString(), roles: ['tester'], pages: [],
+    roleNames: { tester: '测试人员' }, pageNames: {}, attachmentCount: 0,
+  })
+
+  render(<AdminApp />)
+  await screen.findByRole('option', { name: '测试人员' })
+  await user.selectOptions(screen.getByRole('combobox', { name: '角色筛选' }), 'tester')
+  expect(adminApi.submissions).toHaveBeenCalledTimes(1)
+  await user.click(screen.getByRole('button', { name: /筛选/ }))
+  await waitFor(() => expect(adminApi.submissions).toHaveBeenCalledTimes(2))
+  resolveSecond({ items: [row('new-result')] })
+  expect(await screen.findByText('new-result')).toBeInTheDocument()
+  resolveFirst({ items: [row('old-result')] })
+  await waitFor(() => expect(screen.queryByText('old-result')).not.toBeInTheDocument())
+  expect(screen.getByText('new-result')).toBeInTheDocument()
+})
+
+it('disables catalog editing while a save is in flight', async () => {
+  const user = userEvent.setup()
+  let resolveSave!: (value: SurveyVersionConfig) => void
+  vi.mocked(adminApi.saveDraft).mockReturnValue(new Promise((resolve) => { resolveSave = resolve }))
+  render(<AdminApp />)
+  const title = await screen.findByDisplayValue('DML 使用体验调研')
+  await user.clear(title)
+  await user.type(title, '新版问卷')
+  await user.click(screen.getByRole('button', { name: /保存草稿/ }))
+  expect(title).toBeDisabled()
+  resolveSave({ ...draft, title: '新版问卷', revision: 2 })
+  await waitFor(() => expect(title).not.toBeDisabled())
+})
+
+it('follows browser history between admin views', async () => {
+  history.replaceState({}, '', '/admin/surveys')
+  render(<AdminApp />)
+  expect(await screen.findByText('页面目录')).toBeInTheDocument()
+
+  history.pushState({}, '', '/admin/results')
+  window.dispatchEvent(new PopStateEvent('popstate'))
+
+  expect(await screen.findByRole('heading', { name: '收集结果' })).toBeInTheDocument()
+})
+
+it('prevents unloading while the survey draft is dirty', async () => {
+  const user = userEvent.setup()
+  render(<AdminApp />)
+  const title = await screen.findByDisplayValue('DML 使用体验调研')
+  await user.type(title, ' 已修改')
+  const event = new Event('beforeunload', { cancelable: true })
+
+  window.dispatchEvent(event)
+
+  expect(event.defaultPrevented).toBe(true)
+})
