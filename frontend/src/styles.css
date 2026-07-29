@@ -48,8 +48,9 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .signed-user { max-width: 180px; height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 10px; color: #315248; }
 .signed-user strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.login-reward { min-height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid #b8d5c9; border-radius: 6px; background: #f1f8f5; color: #155a46; text-decoration: none; font-size: 13px; font-weight: 600; white-space: nowrap; }
-.login-reward:hover { border-color: var(--green); background: var(--green-soft); }
+.login-hint { min-height: 38px; display: inline-flex; align-items: center; gap: 6px; padding: 0 2px; color: #4f6f63; text-decoration: none; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.login-hint:hover { color: var(--green); }
+.login-hint svg { flex: none; }
 .anonymous-user { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .icon-button { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--muted); }
 .icon-button:hover { color: var(--green); border-color: var(--green); }
@@ -184,8 +185,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 
 @media (max-width: 980px) {
   .app-header { grid-template-columns: minmax(180px, 1fr) 120px auto; padding: 0 18px; gap: 14px; }
-  .login-reward span { display: none; }
-  .login-reward { width: 38px; padding: 0; justify-content: center; }
+  .login-hint span { display: none; }
+  .login-hint { width: 38px; padding: 0; justify-content: center; }
   .signed-user { max-width: 120px; padding: 0 4px; }
   .survey-layout { grid-template-columns: 210px minmax(0, 1fr); }
   .question-stage { width: min(100% - 40px, 900px); }

@@ -273,7 +273,7 @@ export default function App() {
           {userSession.user ? (
             <div className="signed-user"><UserRound size={17} /><strong>{userSession.user.username}</strong></div>
           ) : userSession.ssoEnabled && userSession.loginUrl ? (
-            <a href={userSession.loginUrl} className="login-reward" onClick={() => markPendingAnonymousDraftClaim(draft.id)}>
+            <a href={userSession.loginUrl} className="login-hint" onClick={() => markPendingAnonymousDraftClaim(draft.id)}>
               <LogIn size={16} /><span>登录填写，有机会获得奖励</span>
             </a>
           ) : <span className="anonymous-user">匿名填写</span>}
