@@ -43,7 +43,8 @@
 
 ```mermaid
 flowchart LR
-    E["外部系统"] -->|"短时签名票据"| F["FastAPI"]
+    E["外部系统"] -->|"?token=HS256 JWT"| V["React"]
+    V -->|"POST token 交换"| F["FastAPI"]
     U["问卷用户"] --> N["Nginx / React"]
     A["管理员"] --> N
     N -->|"/api/v1"| F["FastAPI"]
@@ -135,13 +136,13 @@ uv run python mock_external.py
 
 完整的跳转时序、JWT 字段、身份保存方式和联调说明见 [外部系统跳转接入说明](docs/外部系统跳转接入说明.md)。
 
-真实外部系统在服务端生成 HS256 JWT，并通过浏览器跳转到：
+真实外部系统从自身登录态生成 HS256 JWT，并通过浏览器直接跳转到：
 
 ```text
-https://问卷域名/api/v1/auth/external/callback?ticket=<JWT>
+https://问卷域名/?token=<JWT>
 ```
 
-登录必须先访问 `/api/v1/auth/external/start`，问卷系统会生成浏览器绑定的 `state` 并跳转外部系统。外部系统签发的 JWT 必须包含 `iss`、`aud`、`sub`、`username`、`iat`、`exp`、`jti`、`state` 和 `token_type=external_sso`。其中 `sub` 是稳定的外部用户 ID，票据最长有效 60 秒且只能使用一次。问卷后端验签并核对 `state` 后，会清理地址中的票据并建立自己的 HttpOnly 会话。
+JWT 必须包含 `itcode`、`name`、`realname`、`dept` 和 `external_user`，并使用与问卷后端 `EXTERNAL_SSO_SHARED_SECRET` 相同的密钥签名。前端会先从地址栏移除 token，再通过同源 POST 交给后端验签；后端将 `itcode` 作为稳定用户 ID、`realname` 作为展示名，并建立独立的 HttpOnly 会话。强烈建议外部系统同时签发短时 `iat`、`exp` 和唯一 `jti`；当前后端会验证存在的 `exp`。旧 `/external/start` 与 `/external/callback` 流程暂时保留用于平滑迁移。
 
 ## 管理员配置
 
@@ -171,8 +172,8 @@ openssl rand -hex 32
 | `ADMIN_SECURE_COOKIE` | 否 | `false` | HTTPS 环境设为 `true` |
 | `EXTERNAL_SSO_SHARED_SECRET` | 外部登录时是 | 空 | 外部系统和问卷后端共享的票据签名密钥，至少 32 字符 |
 | `USER_SESSION_SECRET` | 外部登录时是 | 空 | 问卷用户会话签名密钥，至少 32 字符且不能与 SSO 密钥相同 |
-| `EXTERNAL_SSO_ISSUER` | 否 | `dml-demo-external` | 外部票据签发方 |
-| `EXTERNAL_SSO_AUDIENCE` | 否 | `dml-survey` | 外部票据接收方 |
+| `EXTERNAL_SSO_ISSUER` | 否 | `dml-demo-external` | 仅旧版 state/ticket 兼容流程使用 |
+| `EXTERNAL_SSO_AUDIENCE` | 否 | `dml-survey` | 仅旧版 state/ticket 兼容流程使用 |
 | `EXTERNAL_PORTAL_URL` | 否 | `http://127.0.0.1:9000` | 匿名用户点击登录提示时前往的地址 |
 | `USER_SECURE_COOKIE` | 否 | `false` | HTTPS 环境设为 `true` |
 | `LOG_LEVEL` | 否 | `INFO` | 后端日志级别 |
@@ -231,6 +232,7 @@ cp docker/.env.example docker/.env
 | `GET` | `/api/v1/surveys/current` | 获取当前发布问卷 |
 | `POST` | `/api/v1/submissions` | 提交问卷与附件 |
 | `GET` | `/api/v1/auth/external/callback` | 交换外部系统短时票据 |
+| `POST` | `/api/v1/auth/external/token` | 验证外部身份 JWT 并建立问卷会话 |
 | `GET` | `/api/v1/auth/session` | 获取当前问卷用户状态 |
 | `POST` | `/api/v1/auth/logout` | 退出问卷用户会话 |
 | `POST` | `/api/v1/admin/auth/login` | 管理员登录 |

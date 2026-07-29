@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Check,
   ClipboardCheck,
-  LogIn,
   LogOut,
   LoaderCircle,
   RotateCcw,
@@ -24,7 +23,6 @@ import {
   getAttachments,
   loadDraft,
   claimPendingAnonymousDraft,
-  markPendingAnonymousDraftClaim,
   ownerKeyForUser,
   pruneAttachments,
   putAttachments,
@@ -272,10 +270,8 @@ export default function App() {
         <div className="header-actions">
           {userSession.user ? (
             <div className="signed-user"><UserRound size={17} /><strong>{userSession.user.username}</strong></div>
-          ) : userSession.ssoEnabled && userSession.loginUrl ? (
-            <a href={userSession.loginUrl} className="login-hint" onClick={() => markPendingAnonymousDraftClaim(draft.id)}>
-              <LogIn size={16} /><span>登录填写，有机会获得奖励</span>
-            </a>
+          ) : userSession.ssoEnabled ? (
+            <span className="login-message">登录填写，有机会获得奖励</span>
           ) : <span className="anonymous-user">匿名填写</span>}
           {userSession.user ? <button type="button" className="icon-button" title="退出登录" onClick={() => logoutUser().then(() => window.location.reload()).catch((reason) => setError(reason.message))}><LogOut size={18} /></button> : null}
           <button type="button" className="icon-button" title="重新填写" onClick={reset}><RotateCcw size={18} /></button>

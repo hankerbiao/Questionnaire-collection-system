@@ -34,6 +34,22 @@ class ExternalTicket(BaseModel):
     state: str = Field(min_length=32, max_length=200)
 
 
+class ExternalIdentityClaims(BaseModel):
+    itcode: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=100)
+    realname: str = Field(min_length=1, max_length=100)
+    dept: str = Field(min_length=1, max_length=300)
+    external_user: bool
+
+    @field_validator("itcode", "name", "realname", "dept")
+    @classmethod
+    def trim_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value or any(unicodedata.category(character).startswith("C") for character in value):
+            raise ValueError("identity text is invalid")
+        return value
+
+
 def _configured_secret(value: str) -> bool:
     return configured_secret(value)
 
@@ -80,6 +96,36 @@ def decode_external_ticket(ticket: str, settings: Settings) -> ExternalTicket:
             state=str(payload["state"]),
         )
     except (jwt.PyJWTError, KeyError, OSError, OverflowError, TypeError, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="外部系统登录凭证无效或已过期",
+        ) from error
+
+
+def decode_external_identity_token(token: str, settings: Settings) -> ExternalUser:
+    """Validate the JWT issued by the external portal and map it to a local user."""
+    if not _configured_secret(settings.external_sso_shared_secret):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="外部系统登录尚未配置",
+        )
+    try:
+        payload: dict[str, Any] = jwt.decode(
+            token,
+            settings.external_sso_shared_secret,
+            algorithms=[JWT_ALGORITHM],
+            options={
+                "require": ["itcode", "name", "realname", "dept", "external_user"],
+                "verify_aud": False,
+                "verify_iss": False,
+            },
+        )
+        identity = ExternalIdentityClaims.model_validate(payload)
+        return ExternalUser(
+            external_user_id=identity.itcode,
+            username=identity.realname or identity.name,
+        )
+    except (jwt.PyJWTError, KeyError, TypeError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="外部系统登录凭证无效或已过期",

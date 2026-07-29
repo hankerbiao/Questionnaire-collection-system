@@ -4,6 +4,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.api import get_repository
@@ -13,6 +14,7 @@ from app.user_auth import (
     USER_SESSION_COOKIE,
     LOGIN_STATE_COOKIE,
     create_user_session_token,
+    decode_external_identity_token,
     decode_external_ticket,
     optional_user,
     sso_enabled,
@@ -21,11 +23,29 @@ from app.user_auth import (
 router = APIRouter(prefix="/api/v1/auth")
 
 
+class ExternalTokenRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=4_096)
+
+
 def _with_query_value(url: str, key: str, value: str) -> str:
     parts = urlsplit(url)
     query = [(item_key, item_value) for item_key, item_value in parse_qsl(parts.query) if item_key != key]
     query.append((key, value))
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _set_user_session_cookie(response: Response, session_token: str, settings: Settings) -> None:
+    response.set_cookie(
+        USER_SESSION_COOKIE,
+        session_token,
+        max_age=settings.user_session_hours * 3600,
+        httponly=True,
+        secure=settings.user_secure_cookie,
+        samesite="lax",
+        path="/",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
 
 
 @router.get("/external/start")
@@ -91,19 +111,26 @@ async def external_callback(
         ) from error
 
     response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-    response.set_cookie(
-        USER_SESSION_COOKIE,
-        session_token,
-        max_age=settings.user_session_hours * 3600,
-        httponly=True,
-        secure=settings.user_secure_cookie,
-        samesite="lax",
-        path="/",
-    )
+    _set_user_session_cookie(response, session_token, settings)
     response.delete_cookie(LOGIN_STATE_COOKIE, path="/")
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Referrer-Policy"] = "no-referrer"
     return response
+
+
+@router.post("/external/token")
+async def external_token_login(
+    payload: ExternalTokenRequest,
+    response: Response,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, str]:
+    if not sso_enabled(settings):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="外部系统登录尚未配置",
+        )
+    user = decode_external_identity_token(payload.token, settings)
+    session_token = create_user_session_token(user, settings)
+    _set_user_session_cookie(response, session_token, settings)
+    return {"status": "ok"}
 
 
 @router.get("/session")
@@ -124,7 +151,7 @@ async def session(
             if user else None
         ),
         "ssoEnabled": sso_enabled(settings),
-        "loginUrl": "/api/v1/auth/external/start" if sso_enabled(settings) else None,
+        "loginUrl": None,
     }
 
 

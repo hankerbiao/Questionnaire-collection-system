@@ -48,9 +48,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .signed-user { max-width: 180px; height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 10px; color: #315248; }
 .signed-user strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.login-hint { min-height: 38px; display: inline-flex; align-items: center; gap: 6px; padding: 0 2px; color: #4f6f63; text-decoration: none; font-size: 13px; font-weight: 500; white-space: nowrap; }
-.login-hint:hover { color: var(--green); }
-.login-hint svg { flex: none; }
+.login-message { color: #4f6f63; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .anonymous-user { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .icon-button { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--muted); }
 .icon-button:hover { color: var(--green); border-color: var(--green); }
@@ -185,8 +183,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 
 @media (max-width: 980px) {
   .app-header { grid-template-columns: minmax(180px, 1fr) 120px auto; padding: 0 18px; gap: 14px; }
-  .login-hint span { display: none; }
-  .login-hint { width: 38px; padding: 0; justify-content: center; }
+  .login-message { max-width: 160px; }
   .signed-user { max-width: 120px; padding: 0 4px; }
   .survey-layout { grid-template-columns: 210px minmax(0, 1fr); }
   .question-stage { width: min(100% - 40px, 900px); }
@@ -199,6 +196,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
   .app-header > div:first-child strong { font-size: 14px; }
   .header-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 0; }
   .signed-user { max-width: 96px; }
+  .login-message { max-width: min(42vw, 150px); font-size: 12px; }
   .survey-layout { display: block; min-height: calc(100vh - 56px); }
   .step-rail { display: none; }
   .survey-main { min-height: calc(100vh - 56px); }

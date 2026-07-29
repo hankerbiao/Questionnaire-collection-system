@@ -15,6 +15,7 @@ from app.user_auth import (
     USER_SESSION_COOKIE,
     ExternalUser,
     create_user_session_token,
+    decode_external_identity_token,
     decode_external_ticket,
     decode_user_session,
 )
@@ -58,6 +59,18 @@ def ticket(config: Settings, jti: str = "ticket-1", state: str = "state-value-th
     return jwt.encode(payload, config.external_sso_shared_secret, algorithm=JWT_ALGORITHM)
 
 
+def identity_token(config: Settings, **overrides) -> str:
+    payload = {
+        "itcode": "demo-1",
+        "name": "张三",
+        "realname": "张三",
+        "dept": "测试部",
+        "external_user": False,
+        **overrides,
+    }
+    return jwt.encode(payload, config.external_sso_shared_secret, algorithm=JWT_ALGORITHM)
+
+
 def make_client() -> tuple[TestClient, Settings]:
     config = settings()
     app = FastAPI()
@@ -86,7 +99,7 @@ def test_external_callback_sets_session_and_ticket_is_one_time() -> None:
         "authenticated": True,
         "user": {"externalUserId": "demo-1", "username": "张三"},
         "ssoEnabled": True,
-        "loginUrl": "/api/v1/auth/external/start",
+        "loginUrl": None,
     }
     client.cookies.set(LOGIN_STATE_COOKIE, state_value)
     replay = client.get(
@@ -95,6 +108,56 @@ def test_external_callback_sets_session_and_ticket_is_one_time() -> None:
         follow_redirects=False,
     )
     assert replay.status_code == 401
+
+
+def test_external_identity_token_sets_local_session() -> None:
+    client, config = make_client()
+
+    response = client.post(
+        "/api/v1/auth/external/token",
+        json={"token": identity_token(config)},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert response.cookies.get(USER_SESSION_COOKIE)
+    assert response.headers["cache-control"] == "no-store"
+    assert client.get("/api/v1/auth/session").json() == {
+        "authenticated": True,
+        "user": {"externalUserId": "demo-1", "username": "张三"},
+        "ssoEnabled": True,
+        "loginUrl": None,
+    }
+
+
+def test_external_identity_token_rejects_invalid_signature_and_expiry() -> None:
+    client, config = make_client()
+    forged = jwt.encode(
+        {
+            "itcode": "demo-1",
+            "name": "张三",
+            "realname": "张三",
+            "dept": "测试部",
+            "external_user": False,
+        },
+        "different-secret-that-is-long-enough",
+        algorithm=JWT_ALGORITHM,
+    )
+    expired = identity_token(config, exp=datetime.now(UTC) - timedelta(seconds=1))
+
+    assert client.post("/api/v1/auth/external/token", json={"token": forged}).status_code == 401
+    assert client.post("/api/v1/auth/external/token", json={"token": expired}).status_code == 401
+
+
+def test_external_identity_token_maps_itcode_and_realname() -> None:
+    config = settings()
+
+    user = decode_external_identity_token(
+        identity_token(config, itcode="wangyy1", name="登录名", realname="王永义"),
+        config,
+    )
+
+    assert user == ExternalUser(external_user_id="wangyy1", username="王永义")
 
 
 def test_external_callback_requires_browser_bound_state() -> None:

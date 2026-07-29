@@ -9,7 +9,7 @@ export async function loadUserSession(): Promise<UserSession> {
     if (typeof body.authenticated !== 'boolean' || typeof body.ssoEnabled !== 'boolean') {
       throw new Error('登录状态响应格式无效。')
     }
-    if (body.ssoEnabled && typeof body.loginUrl !== 'string') {
+    if (body.loginUrl !== null && body.loginUrl !== undefined && typeof body.loginUrl !== 'string') {
       throw new Error('登录入口响应格式无效。')
     }
     const candidate = body.user
@@ -30,6 +30,27 @@ export async function loadUserSession(): Promise<UserSession> {
   } catch {
     throw new Error('无法确认登录状态，请检查网络后刷新页面。')
   }
+}
+
+export async function consumeExternalLoginTokenFromUrl(): Promise<boolean> {
+  const currentUrl = new URL(window.location.href)
+  const token = currentUrl.searchParams.get('token')
+  if (!token) return false
+
+  currentUrl.searchParams.delete('token')
+  window.history.replaceState(
+    window.history.state,
+    '',
+    `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`,
+  )
+
+  const response = await fetch(`${API_BASE}/auth/external/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+  if (!response.ok) throw new Error('外部系统登录凭证无效或已过期。')
+  return true
 }
 
 export async function logoutUser(): Promise<void> {
