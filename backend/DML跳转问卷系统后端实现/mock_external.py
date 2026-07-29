@@ -15,15 +15,15 @@ JWT_ALGORITHM = "HS256"
 # Keep the secret outside the distributed source file.
 EXTERNAL_SSO_SHARED_SECRET = os.getenv("EXTERNAL_SSO_SHARED_SECRET")
 # Must be identical to the questionnaire's EXTERNAL_SSO_ISSUER.
-EXTERNAL_SSO_ISSUER = ""
+EXTERNAL_SSO_ISSUER = "dml-demo-external"
 # Must be identical to the questionnaire's EXTERNAL_SSO_AUDIENCE.
-EXTERNAL_SSO_AUDIENCE = ""
+EXTERNAL_SSO_AUDIENCE = "dml-survey"
 # The questionnaire callback URL that receives the signed ticket.
-SURVEY_CALLBACK_URL = ""
+SURVEY_CALLBACK_URL = "http://10.17.158.73:8280/api/v1/auth/external/callback"
 # The questionnaire URL that starts the browser-bound state flow.
-SURVEY_LOGIN_START_URL = ""
+SURVEY_LOGIN_START_URL = "http://10.17.158.73:8280/api/v1/auth/external/start"
 # The ticket lifetime; it must match the questionnaire's allowed maximum.
-EXTERNAL_TICKET_MAX_SECONDS: int | None = None
+EXTERNAL_TICKET_MAX_SECONDS: int = 60
 UNSAFE_SECRETS = {
     "change-me-in-production",
     "replace-with-at-least-32-random-characters",
