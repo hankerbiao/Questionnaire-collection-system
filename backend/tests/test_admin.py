@@ -10,17 +10,28 @@ from app.default_survey import default_survey
 from app.auth import ADMIN_SESSION_AUDIENCE, ADMIN_SESSION_ISSUER, LoginRequest, create_session_token, verify_login
 from app.config import Settings, get_settings
 from app.repository import SubmissionRepository
+from app.repositories.submissions import SubmissionRepositoryMixin
 
 
 class FakeAdminRepository:
     def __init__(self) -> None:
         self.audits: list[str] = []
+        self.deleted: list[str] = []
 
     async def write_audit(self, username: str, action: str, details=None) -> None:
         self.audits.append(action)
 
     async def submission_stats(self) -> dict[str, int]:
         return {"total": 3, "last7Days": 2, "withAttachments": 1}
+
+    async def delete_submission(self, submission_id: str):
+        if submission_id == "missing":
+            return None
+        self.deleted.append(submission_id)
+        return {
+            "submission_id": "DML-DELETE-1",
+            "attachments": [{"gridfs_id": "attachment-1"}],
+        }
 
 
 def settings() -> Settings:
@@ -66,6 +77,19 @@ def test_admin_routes_require_authentication_and_origin() -> None:
     assert response.status_code == 200
     assert response.cookies.get("dml_admin_session")
     assert client.get("/api/v1/admin/submissions/stats").json()["total"] == 3
+    assert client.delete("/api/v1/admin/submissions/row-1").status_code == 403
+    deleted = client.delete(
+        "/api/v1/admin/submissions/row-1",
+        headers={"Origin": "http://testserver"},
+    )
+    assert deleted.status_code == 200
+    assert deleted.json() == {"status": "ok", "submissionId": "DML-DELETE-1"}
+    assert app.state.repository.deleted == ["row-1"]
+    assert "delete_submission" in app.state.repository.audits
+    assert client.delete(
+        "/api/v1/admin/submissions/missing",
+        headers={"Origin": "http://testserver"},
+    ).status_code == 404
 
 
 def test_admin_rejects_user_session_token_even_when_signed_with_admin_secret() -> None:
@@ -235,3 +259,39 @@ def test_publish_returns_success_when_post_commit_audit_write_fails() -> None:
 
     assert response.status_code == 200
     assert response.json()["version"] == 2
+
+
+async def test_repository_delete_submission_removes_gridfs_attachments() -> None:
+    document = {
+        "submission_id": "DML-DELETE-1",
+        "attachments": [
+            {"gridfs_id": "attachment-1"},
+            {"gridfs_id": "attachment-2"},
+            {"attachment_id": "metadata-only"},
+        ],
+    }
+
+    class FakeSubmissions:
+        query = None
+
+        async def find_one_and_delete(self, query):
+            self.query = query
+            return document
+
+    class FakeAttachments:
+        def __init__(self) -> None:
+            self.deleted: list[str] = []
+
+        async def delete(self, gridfs_id: str) -> None:
+            self.deleted.append(gridfs_id)
+
+    repository = SubmissionRepositoryMixin()
+    repository.submissions = FakeSubmissions()
+    repository.attachments = FakeAttachments()
+    repository.object_id = lambda _: None
+
+    deleted = await repository.delete_submission("DML-DELETE-1")
+
+    assert deleted is document
+    assert repository.submissions.query == {"submission_id": "DML-DELETE-1"}
+    assert repository.attachments.deleted == ["attachment-1", "attachment-2"]

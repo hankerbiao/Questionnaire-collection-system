@@ -1,11 +1,11 @@
-import { ChevronRight, Download, FileJson, Search, UserRound, X } from 'lucide-react'
+import { ChevronRight, Download, FileJson, Search, Trash2, UserRound, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { adminApi } from './api'
 import type { SubmissionDetail, SubmissionFilterCatalog, SubmissionRow } from './types'
 
 const EMPTY_FILTERS = { keyword: '', username: '', authType: '', role: '', page: '', hasAttachments: '' }
 
-function DetailDrawer({ detail, onClose }: { detail: SubmissionDetail; onClose: () => void }) {
+function DetailDrawer({ detail, deleting, deleteError, onClose, onDelete }: { detail: SubmissionDetail; deleting: boolean; deleteError: string; onClose: () => void; onDelete: () => void }) {
   interface DetailPayload {
     profile?: { roleIds?: string[]; roleContext?: string }
     topPageReviews?: Array<{ pageId: string; overallScore: number; strengths: string; painPoints: string; featureScores: Record<string, number> }>
@@ -22,10 +22,14 @@ function DetailDrawer({ detail, onClose }: { detail: SubmissionDetail; onClose: 
   const issueSection = detail.sections.find((section) => section.id === 'issue-evidence')
 
   return (
-    <div className="detail-backdrop" onClick={onClose}>
+    <div className="detail-backdrop" onClick={() => { if (!deleting) onClose() }}>
       <aside className="detail-drawer" onClick={(event) => event.stopPropagation()}>
-        <header><div><small>提交详情</small><h2>{detail.submissionId}</h2><p>{new Date(detail.submittedAt).toLocaleString('zh-CN')}</p></div><button className="icon-control" title="关闭" onClick={onClose}><X size={18} /></button></header>
-        <div className="detail-actions"><a className="admin-button" href={adminApi.jsonUrl(detail.id)}><FileJson size={15} />JSON</a></div>
+        <header><div><small>提交详情</small><h2>{detail.submissionId}</h2><p>{new Date(detail.submittedAt).toLocaleString('zh-CN')}</p></div><button className="icon-control" title="关闭" disabled={deleting} onClick={onClose}><X size={18} /></button></header>
+        <div className="detail-actions">
+          <a className="admin-button" href={adminApi.jsonUrl(detail.id)}><FileJson size={15} />JSON</a>
+          <button type="button" className="admin-button danger" disabled={deleting} onClick={onDelete}><Trash2 size={15} />{deleting ? '删除中…' : '删除问卷'}</button>
+        </div>
+        {deleteError ? <div className="admin-error">{deleteError}</div> : null}
         <div className="detail-sections">
           <section><h3>提交用户</h3>{detail.authType === 'external' ? <><strong>{detail.username}</strong><p>外部用户 ID：{detail.externalUserId}</p></> : <strong>匿名用户</strong>}</section>
           <section><h3>角色与背景</h3><strong>{(payload.profile?.roleIds ?? []).map((id) => detail.roleNames[id] ?? id).join('、')}</strong><p>{payload.profile?.roleContext}</p></section>
@@ -47,6 +51,8 @@ export function ResultsView() {
   const [rows, setRows] = useState<SubmissionRow[]>([])
   const [nextCursor, setNextCursor] = useState<string>()
   const [detail, setDetail] = useState<SubmissionDetail>()
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const [error, setError] = useState('')
   const [editingFilters, setEditingFilters] = useState(EMPTY_FILTERS)
   const [appliedFilters, setAppliedFilters] = useState(EMPTY_FILTERS)
@@ -75,6 +81,24 @@ export function ResultsView() {
   }, [])
   useEffect(() => { void load() }, [load])
 
+  const deleteSubmission = async () => {
+    if (!detail || !window.confirm(`确定删除问卷 ${detail.submissionId} 吗？此操作不可恢复，关联截图也会一并删除。`)) return
+    setDeleting(true)
+    setDeleteError('')
+    setError('')
+    try {
+      await adminApi.deleteSubmission(detail.id)
+      setDetail(undefined)
+      const nextStats = await adminApi.stats()
+      setStats(nextStats)
+      await load()
+    } catch (reason) {
+      setDeleteError(reason instanceof Error ? reason.message : '删除失败')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="admin-view results-view">
       <header className="admin-page-head"><div><h1>收集结果</h1><p>按角色和页面筛选新结构问卷。</p></div><a className="admin-button" href={adminApi.exportUrl(params)}><Download size={16} />导出 CSV</a></header>
@@ -90,9 +114,9 @@ export function ResultsView() {
         <button type="button" className="admin-button" onClick={() => { setEditingFilters(EMPTY_FILTERS); setAppliedFilters(EMPTY_FILTERS) }}><X size={15} />重置</button>
       </form>
       {error ? <div className="admin-error">{error}</div> : null}
-      <div className="result-table-wrap"><table className="result-table"><thead><tr><th>提交编号</th><th>用户</th><th>提交时间</th><th>角色</th><th>重点页面</th><th>截图</th><th /></tr></thead><tbody>{rows.map((row) => <tr key={row.id} onClick={() => adminApi.detail(row.id).then(setDetail).catch((reason) => setError(reason.message))}><td><strong>{row.submissionId}</strong><small>{row.surveyId}</small></td><td>{row.username ?? '匿名'}</td><td>{new Date(row.submittedAt).toLocaleString('zh-CN')}</td><td>{row.roles.map((id) => row.roleNames[id] ?? id).join('、')}</td><td>{row.pages.map((id) => row.pageNames[id] ?? id).join('、')}</td><td>{row.attachmentCount}</td><td><ChevronRight size={16} /></td></tr>)}</tbody></table>{rows.length === 0 ? <div className="admin-empty">暂无符合条件的提交</div> : null}</div>
+      <div className="result-table-wrap"><table className="result-table"><thead><tr><th>提交编号</th><th>用户</th><th>提交时间</th><th>角色</th><th>重点页面</th><th>截图</th><th /></tr></thead><tbody>{rows.map((row) => <tr key={row.id} onClick={() => adminApi.detail(row.id).then((value) => { setDetail(value); setDeleteError('') }).catch((reason) => setError(reason.message))}><td><strong>{row.submissionId}</strong><small>{row.surveyId}</small></td><td>{row.username ?? '匿名'}</td><td>{new Date(row.submittedAt).toLocaleString('zh-CN')}</td><td>{row.roles.map((id) => row.roleNames[id] ?? id).join('、')}</td><td>{row.pages.map((id) => row.pageNames[id] ?? id).join('、')}</td><td>{row.attachmentCount}</td><td><ChevronRight size={16} /></td></tr>)}</tbody></table>{rows.length === 0 ? <div className="admin-empty">暂无符合条件的提交</div> : null}</div>
       <div className="table-footer"><span>已显示 {rows.length} 条</span>{nextCursor ? <button className="admin-button" onClick={() => void load(true, nextCursor)}>加载更多</button> : null}</div>
-      {detail ? <DetailDrawer detail={detail} onClose={() => setDetail(undefined)} /> : null}
+      {detail ? <DetailDrawer detail={detail} deleting={deleting} deleteError={deleteError} onClose={() => { setDetail(undefined); setDeleteError('') }} onDelete={() => void deleteSubmission()} /> : null}
     </div>
   )
 }

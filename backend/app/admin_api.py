@@ -321,6 +321,30 @@ async def submission_detail(request: Request, submission_id: str, _: AdminDepend
     }
 
 
+@router.delete("/submissions/{submission_id}")
+async def delete_submission(
+    request: Request,
+    submission_id: str,
+    admin: AdminDependency,
+) -> dict[str, str]:
+    enforce_same_origin(request)
+    document = await get_repository(request).delete_submission(submission_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="提交记录不存在")
+    details = {
+        "submissionId": document.get("submission_id", submission_id),
+        "attachmentCount": len(document.get("attachments", [])),
+    }
+    try:
+        await get_repository(request).write_audit(admin.username, "delete_submission", details)
+    except Exception:
+        logger.exception(
+            "Submission deletion succeeded but its audit event could not be stored",
+            extra={"submission_id": details["submissionId"]},
+        )
+    return {"status": "ok", "submissionId": str(details["submissionId"])}
+
+
 @router.get("/submissions/{submission_id}/export.json")
 async def export_submission_json(request: Request, submission_id: str, admin: AdminDependency) -> JSONResponse:
     document, _ = await _detail(request, submission_id)

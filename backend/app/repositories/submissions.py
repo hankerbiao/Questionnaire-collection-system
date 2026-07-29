@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from gridfs.errors import NoFile
+
 from pymongo import DESCENDING
 
 
@@ -75,6 +77,21 @@ class SubmissionRepositoryMixin:
         object_id = self.object_id(submission_id)
         query = {"_id": object_id} if object_id else {"submission_id": submission_id}
         return await self.submissions.find_one(query)
+
+    async def delete_submission(self, submission_id: str) -> dict[str, Any] | None:
+        object_id = self.object_id(submission_id)
+        query = {"_id": object_id} if object_id else {"submission_id": submission_id}
+        document = await self.submissions.find_one_and_delete(query)
+        if document is None:
+            return None
+        for attachment in document.get("attachments", []):
+            if (gridfs_id := attachment.get("gridfs_id")) is None:
+                continue
+            try:
+                await self.attachments.delete(gridfs_id)
+            except NoFile:
+                pass
+        return document
 
     def list_all_submissions(self, filters: dict[str, Any]):
         projection = {

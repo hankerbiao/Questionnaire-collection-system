@@ -29,7 +29,7 @@
 .admin-primary:hover { background: #17547e; }
 .admin-button:hover, .icon-control:hover { border-color: #9ca6a1; }
 .admin-button.danger, .icon-control.danger { color: var(--admin-red); }
-.admin-primary:disabled, .admin-button:disabled { opacity: .45; cursor: not-allowed; }
+.admin-primary:disabled, .admin-button:disabled, .icon-control:disabled { opacity: .45; cursor: not-allowed; }
 .admin-error { margin: 14px 0; padding: 11px 13px; border-left: 3px solid var(--admin-red); background: #fff1f0; color: #8a2c28; }
 
 .admin-shell { min-height: 100vh; display: grid; grid-template-columns: 232px minmax(0, 1fr); color: var(--admin-ink); background: var(--admin-bg); }
@@ -77,7 +77,7 @@
 .detail-drawer > header { display: flex; justify-content: space-between; gap: 20px; }
 .detail-drawer h2 { margin: 5px 0; }
 .detail-drawer header p, .detail-drawer header small { color: var(--admin-muted); }
-.detail-actions { margin: 18px 0; }
+.detail-actions { display: flex; align-items: center; gap: 9px; margin: 18px 0; }
 .detail-sections > section { padding: 20px 0; border-top: 1px solid var(--admin-line); }
 .detail-sections h3 { margin: 0 0 13px; }
 .detail-sections article { margin: 10px 0; padding: 13px; background: #f6f8f7; border-left: 3px solid #83a99a; }

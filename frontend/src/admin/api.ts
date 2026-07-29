@@ -23,6 +23,7 @@ export const adminApi = {
   submissionCatalog: () => request<SubmissionFilterCatalog>('/admin/submissions/catalog'),
   submissions: (params: URLSearchParams) => request<{ items: SubmissionRow[]; nextCursor?: string }>(`/admin/submissions?${params}`),
   detail: (id: string) => request<SubmissionDetail>(`/admin/submissions/${id}`),
+  deleteSubmission: (id: string) => request<{ status: string; submissionId: string }>(`/admin/submissions/${id}`, { method: 'DELETE' }),
   draft: () => request<SurveyVersionConfig>('/admin/surveys/dml-v4/draft'),
   saveDraft: (draft: SurveyVersionConfig) => request<SurveyVersionConfig>('/admin/surveys/dml-v4/draft', {
     method: 'PUT',
