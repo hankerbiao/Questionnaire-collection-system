@@ -36,9 +36,15 @@ const storedDraft = (roleContext: string): SurveyDraft => ({
 
 describe('fixed survey flow', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(survey), {
-      status: 200, headers: { 'Content-Type': 'application/json' },
-    })))
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      const body = url.includes('/auth/session')
+        ? { authenticated: false, user: null, ssoEnabled: true, loginUrl: '/api/v1/auth/external/start' }
+        : survey
+      return Promise.resolve(new Response(JSON.stringify(body), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }))
+    }))
   })
 
   it('enforces the trimmed 100-character role context boundary', async () => {
@@ -95,6 +101,12 @@ describe('fixed survey flow', () => {
       pageId: 'page-1', winningReason: '', improvement: '',
     })
     expect(selectFavoritePage(current, 'page-0')).toBe(current)
+  })
+
+  it('shows the anonymous reward login prompt', async () => {
+    render(<App />)
+    expect(await screen.findByRole('link', { name: /登录填写，有机会获得奖励/ }))
+      .toHaveAttribute('href', '/api/v1/auth/external/start')
   })
 
   it('renders the animated completion state and restarts the survey', async () => {

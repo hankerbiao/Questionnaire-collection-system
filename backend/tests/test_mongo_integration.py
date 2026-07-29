@@ -8,6 +8,7 @@ from fastapi import UploadFile
 from pymongo import AsyncMongoClient
 from starlette.datastructures import Headers
 
+from app.config import Settings
 from app.models import SurveySubmission
 from app.repository import SubmissionRepository
 from app.services import SubmissionService
@@ -19,6 +20,10 @@ pytestmark = pytest.mark.skipif(
     os.getenv("RUN_MONGO_INTEGRATION") != "1",
     reason="set RUN_MONGO_INTEGRATION=1 to use the dedicated MongoDB test database",
 )
+
+
+def mongodb_uri() -> str:
+    return Settings().mongodb_uri
 
 
 class FailingInsertCollection:
@@ -33,7 +38,7 @@ class FailingInsertCollection:
 
 
 async def test_real_mongodb_submission_round_trip() -> None:
-    client = AsyncMongoClient(os.getenv("MONGODB_URI", "mongodb://10.17.154.252:27019"))
+    client = AsyncMongoClient(mongodb_uri())
     database_name = f"dml_v4_survey_test_{uuid4().hex}"
     repository = SubmissionRepository(client, database_name)
     data = submission_data()
@@ -68,7 +73,7 @@ async def test_real_mongodb_submission_round_trip() -> None:
 
 
 async def test_real_mongodb_publication_transaction() -> None:
-    client = AsyncMongoClient(os.getenv("MONGODB_URI", "mongodb://10.17.154.252:27019"))
+    client = AsyncMongoClient(mongodb_uri())
     database_name = f"dml_v4_survey_publish_test_{uuid4().hex}"
     repository = SubmissionRepository(client, database_name)
     try:
@@ -93,7 +98,7 @@ async def test_real_mongodb_publication_transaction() -> None:
 
 
 async def test_real_mongodb_publication_transaction_rolls_back_on_insert_failure() -> None:
-    client = AsyncMongoClient(os.getenv("MONGODB_URI", "mongodb://10.17.154.252:27019"))
+    client = AsyncMongoClient(mongodb_uri())
     database_name = f"dml_v4_rollback_{uuid4().hex}"
     repository = SubmissionRepository(client, database_name)
     try:

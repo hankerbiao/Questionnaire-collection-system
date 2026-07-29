@@ -49,6 +49,8 @@ def _filters(
     page: str | None,
     keyword: str | None,
     has_attachments: bool | None,
+    username: str | None = None,
+    auth_type: str | None = None,
 ) -> dict[str, Any]:
     query: dict[str, Any] = {}
     if date_from or date_to:
@@ -79,6 +81,7 @@ def _filters(
         keyword_query = [
             {"submission_id": {"$regex": escaped, "$options": "i"}},
             {"survey_id": {"$regex": escaped, "$options": "i"}},
+            {"respondent.username": {"$regex": escaped, "$options": "i"}},
         ]
         if "$or" in query:
             query["$and"] = [{"$or": query.pop("$or")}, {"$or": keyword_query}]
@@ -86,11 +89,18 @@ def _filters(
             query["$or"] = keyword_query
     if has_attachments is not None:
         query["attachments.0"] = {"$exists": has_attachments}
+    if username and username.strip():
+        query["respondent.username"] = username.strip()
+    if auth_type == "external":
+        query["respondent.auth_type"] = "external"
+    elif auth_type == "anonymous":
+        query["respondent.auth_type"] = {"$ne": "external"}
     return query
 
 
 def _summary(document: dict[str, Any], version: SurveyVersion | None = None) -> dict[str, Any]:
     payload = document.get("payload", {})
+    respondent = document.get("respondent") or {"auth_type": "anonymous"}
     role_names = {role.id: role.label for role in version.roles} if version else {}
     page_names = {page.id: page.name for page in version.pages} if version else {}
     return {
@@ -104,6 +114,9 @@ def _summary(document: dict[str, Any], version: SurveyVersion | None = None) -> 
         "roleNames": role_names,
         "pageNames": page_names,
         "attachmentCount": len(document.get("attachments", [])),
+        "authType": respondent.get("auth_type", "anonymous"),
+        "externalUserId": respondent.get("external_user_id"),
+        "username": respondent.get("username"),
     }
 
 
@@ -180,8 +193,10 @@ async def submissions(
     page: str | None = None,
     keyword: str | None = None,
     has_attachments: bool | None = Query(default=None, alias="hasAttachments"),
+    username: str | None = Query(default=None, max_length=100),
+    auth_type: str | None = Query(default=None, alias="authType", pattern="^(external|anonymous)$"),
 ) -> dict[str, Any]:
-    query = _filters(date_from, date_to, version_id, role, page, keyword, has_attachments)
+    query = _filters(date_from, date_to, version_id, role, page, keyword, has_attachments, username, auth_type)
     documents, next_cursor = await get_repository(request).list_submissions(query, cursor, limit)
     versions = await _versions_for_documents(request, documents)
     return {
@@ -199,7 +214,8 @@ def _csv_cell(value: Any) -> str:
 
 
 CSV_HEADERS = [
-    "submission_id", "survey_id", "survey_version_id", "submitted_at", "roles",
+    "submission_id", "survey_id", "survey_version_id", "submitted_at", "auth_type",
+    "external_user_id", "username", "roles",
     "role_context", "top_page_ids", "attachment_count", "top_page_reviews_json",
     "favorite_page_review_json", "other_page_reviews_json", "issue_evidence_json",
     "final_feedback",
@@ -214,6 +230,9 @@ def _csv_row(document: dict[str, Any]) -> list[str]:
         _csv_cell(item["surveyId"]),
         _csv_cell(item["surveyVersionId"]),
         _csv_cell(item["submittedAt"]),
+        _csv_cell(item["authType"]),
+        _csv_cell(item["externalUserId"] or ""),
+        _csv_cell(item["username"] or ""),
         _csv_cell(item["roles"]),
         _csv_cell(payload.get("profile", {}).get("roleContext", "")),
         _csv_cell(item["pages"]),
@@ -237,8 +256,10 @@ async def export_submissions_csv(
     page: str | None = None,
     keyword: str | None = None,
     has_attachments: bool | None = Query(default=None, alias="hasAttachments"),
+    username: str | None = Query(default=None, max_length=100),
+    auth_type: str | None = Query(default=None, alias="authType", pattern="^(external|anonymous)$"),
 ) -> StreamingResponse:
-    filters = _filters(date_from, date_to, version_id, role, page, keyword, has_attachments)
+    filters = _filters(date_from, date_to, version_id, role, page, keyword, has_attachments, username, auth_type)
     await get_repository(request).write_audit(admin.username, "export_csv", {"filters": _json_value(filters)})
 
     async def rows() -> AsyncIterator[str]:

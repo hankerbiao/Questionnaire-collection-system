@@ -10,6 +10,8 @@ from app.default_survey import default_survey
 from app.repository import SubmissionRepository
 from app.services import SubmissionError, SubmissionService
 from app.survey_models import SurveyVersion
+from app.user_auth import UserDependency, respondent_document
+from app.auth import enforce_same_origin
 
 router = APIRouter(prefix="/api/v1")
 MAX_PAYLOAD_SIZE = 1024 * 1024
@@ -66,8 +68,11 @@ async def survey_version(request: Request, version_id: str) -> SurveyVersion:
 async def create_submission(
     request: Request,
     payload: Annotated[str, Form()],
+    user: UserDependency,
     files: Annotated[list[UploadFile] | None, File()] = None,
 ) -> SubmissionResponse:
+    if user is not None:
+        enforce_same_origin(request)
     if len(payload.encode("utf-8")) > MAX_PAYLOAD_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
@@ -85,6 +90,7 @@ async def create_submission(
         submission_id = await SubmissionService(get_repository(request)).submit(
             parsed_payload,
             files or [],
+            respondent_document(user),
         )
     except SubmissionError as error:
         raise HTTPException(status_code=error.status_code, detail=error.detail) from error

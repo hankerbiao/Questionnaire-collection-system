@@ -58,7 +58,7 @@
 .stat-strip div:last-child { border: 0; }
 .stat-strip span { color: var(--admin-muted); font-size: 13px; }
 .stat-strip strong { font-size: 25px; }
-.result-filters { display: grid; grid-template-columns: minmax(240px, 1fr) repeat(3, 170px) auto auto; gap: 9px; margin-bottom: 16px; }
+.result-filters { display: grid; grid-template-columns: repeat(2, minmax(210px, 1fr)) repeat(4, 150px) auto auto; gap: 9px; margin-bottom: 16px; }
 .admin-search { display: flex; align-items: center; gap: 7px; padding-left: 10px; border: 1px solid var(--admin-line); border-radius: 5px; background: #fff; color: var(--admin-muted); }
 .admin-search input { border: 0; box-shadow: none !important; }
 .result-table-wrap { overflow: auto; background: #fff; border: 1px solid var(--admin-line); }

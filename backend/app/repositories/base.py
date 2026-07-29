@@ -14,6 +14,7 @@ class RepositoryBase:
         self.submissions = self.database["submissions"]
         self.survey_versions = self.database["survey_versions"]
         self.audit_events = self.database["admin_audit_events"]
+        self.consumed_external_tickets = self.database["consumed_external_tickets"]
         self.attachments = AsyncGridFSBucket(
             self.database,
             bucket_name="survey_attachments",
@@ -71,6 +72,24 @@ class RepositoryBase:
             await self.audit_events.create_index(
                 [("created_at", DESCENDING)],
                 name="ix_audit_created_at",
+            )
+            await self.consumed_external_tickets.create_index(
+                [("jti", ASCENDING)],
+                unique=True,
+                name="uq_consumed_external_ticket_jti",
+            )
+            await self.consumed_external_tickets.create_index(
+                [("expires_at", ASCENDING)],
+                expireAfterSeconds=0,
+                name="ttl_consumed_external_ticket",
+            )
+            await self.submissions.create_index(
+                [("respondent.external_user_id", ASCENDING)],
+                name="ix_respondent_external_user_id",
+            )
+            await self.submissions.create_index(
+                [("respondent.username", ASCENDING)],
+                name="ix_respondent_username",
             )
             self._indexes_ready = True
 

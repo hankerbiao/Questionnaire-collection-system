@@ -57,6 +57,7 @@ class SubmissionRepositoryMixin:
             "submitted_at": 1,
             "payload.profile.roleIds": 1,
             "payload.topPageIds": 1,
+            "respondent": 1,
             "attachments": 1,
         }
         documents = await (
@@ -88,6 +89,7 @@ class SubmissionRepositoryMixin:
             "payload.otherPageReviews": 1,
             "payload.issueEvidence": 1,
             "payload.finalFeedback": 1,
+            "respondent": 1,
             "attachments": 1,
         }
         return self.submissions.find(filters, projection).sort("_id", DESCENDING)

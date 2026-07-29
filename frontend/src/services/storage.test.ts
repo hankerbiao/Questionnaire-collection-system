@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AttachmentRecord, SurveyDraft } from '../types'
-import { attachmentRecordsForDraft, DRAFT_STORAGE_KEY, loadDraft, saveDraft, validateAttachmentFiles } from './storage'
+import { attachmentRecordsForDraft, DRAFT_STORAGE_KEY, loadDraft, ownerKeyForUser, saveDraft, validateAttachmentFiles } from './storage'
 
 const draft = (): SurveyDraft => ({
   schemaVersion: 1, id: 'id', surveyVersionId: 'v1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
@@ -15,6 +15,16 @@ describe('new draft storage', () => {
     expect(loadDraft()?.currentStep).toBe(3)
     localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ ...draft(), schemaVersion: 0 }))
     expect(loadDraft()).toBeNull()
+  })
+
+  it('isolates drafts by external user ID', () => {
+    const userA = ownerKeyForUser('user-a')
+    const userB = ownerKeyForUser('user-b')
+    saveDraft({ ...draft(), roleContext: 'user a' }, userA)
+    saveDraft({ ...draft(), roleContext: 'user b' }, userB)
+    expect(loadDraft(userA)?.roleContext).toBe('user a')
+    expect(loadDraft(userB)?.roleContext).toBe('user b')
+    expect(loadDraft()?.roleContext).not.toBe('user a')
   })
 
   it('validates screenshot count, type and size', () => {

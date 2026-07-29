@@ -56,6 +56,17 @@ async def test_valid_submission_is_stored() -> None:
     result = await SubmissionService(repository).submit(payload(), [])
     assert result.startswith("DML-")
     assert repository.document["payload"]["schemaVersion"] == 1
+    assert repository.document["respondent"] == {"auth_type": "anonymous"}
+
+
+async def test_authenticated_respondent_is_stored_and_affects_idempotency() -> None:
+    repository = FakeRepository()
+    respondent = {"auth_type": "external", "external_user_id": "demo-1", "username": "张三"}
+    await SubmissionService(repository).submit(payload(), [], respondent)
+    assert repository.document["respondent"] == respondent
+    anonymous_digest = SubmissionService._request_digest(payload(), {}, {"auth_type": "anonymous"})
+    external_digest = SubmissionService._request_digest(payload(), {}, respondent)
+    assert anonymous_digest != external_digest
 
 
 @pytest.mark.parametrize(

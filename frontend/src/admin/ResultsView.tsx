@@ -1,9 +1,9 @@
-import { ChevronRight, Download, FileJson, Search, X } from 'lucide-react'
+import { ChevronRight, Download, FileJson, Search, UserRound, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { adminApi } from './api'
 import type { SubmissionDetail, SubmissionFilterCatalog, SubmissionRow } from './types'
 
-const EMPTY_FILTERS = { keyword: '', role: '', page: '', hasAttachments: '' }
+const EMPTY_FILTERS = { keyword: '', username: '', authType: '', role: '', page: '', hasAttachments: '' }
 
 function DetailDrawer({ detail, onClose }: { detail: SubmissionDetail; onClose: () => void }) {
   interface DetailPayload {
@@ -27,6 +27,7 @@ function DetailDrawer({ detail, onClose }: { detail: SubmissionDetail; onClose: 
         <header><div><small>提交详情</small><h2>{detail.submissionId}</h2><p>{new Date(detail.submittedAt).toLocaleString('zh-CN')}</p></div><button className="icon-control" title="关闭" onClick={onClose}><X size={18} /></button></header>
         <div className="detail-actions"><a className="admin-button" href={adminApi.jsonUrl(detail.id)}><FileJson size={15} />JSON</a></div>
         <div className="detail-sections">
+          <section><h3>提交用户</h3>{detail.authType === 'external' ? <><strong>{detail.username}</strong><p>外部用户 ID：{detail.externalUserId}</p></> : <strong>匿名用户</strong>}</section>
           <section><h3>角色与背景</h3><strong>{(payload.profile?.roleIds ?? []).map((id) => detail.roleNames[id] ?? id).join('、')}</strong><p>{payload.profile?.roleContext}</p></section>
           <section><h3>重点页面评价</h3>{topReviews.map((review) => <article key={review.pageId}><header><strong>{pageNames[review.pageId] ?? review.pageId}</strong><b>{review.overallScore} 分</b></header><p>优点：{review.strengths}</p><p>槽点：{review.painPoints}</p><pre>{JSON.stringify(review.featureScores, null, 2)}</pre></article>)}</section>
           <section><h3>最高分页复盘</h3><strong>{pageNames[favoritePageId] ?? favoritePageId}</strong><p>胜出原因：{payload.favoritePageReview?.winningReason}</p><p>仍需改善：{payload.favoritePageReview?.improvement}</p></section>
@@ -79,7 +80,9 @@ export function ResultsView() {
       <header className="admin-page-head"><div><h1>收集结果</h1><p>按角色和页面筛选新结构问卷。</p></div><a className="admin-button" href={adminApi.exportUrl(params)}><Download size={16} />导出 CSV</a></header>
       <div className="stat-strip"><div><span>累计提交</span><strong>{stats.total}</strong></div><div><span>最近 7 天</span><strong>{stats.last7Days}</strong></div><div><span>含截图</span><strong>{stats.withAttachments}</strong></div></div>
       <form className="result-filters" onSubmit={(event) => { event.preventDefault(); setAppliedFilters({ ...editingFilters }) }}>
-        <label className="admin-search"><Search size={16} /><input placeholder="搜索提交编号或问卷 ID" value={editingFilters.keyword} onChange={(event) => setEditingFilters({ ...editingFilters, keyword: event.target.value })} /></label>
+        <label className="admin-search"><Search size={16} /><input placeholder="搜索提交编号、问卷 ID 或用户名" value={editingFilters.keyword} onChange={(event) => setEditingFilters({ ...editingFilters, keyword: event.target.value })} /></label>
+        <label className="admin-search"><UserRound size={16} /><input placeholder="精确筛选 username" value={editingFilters.username} onChange={(event) => setEditingFilters({ ...editingFilters, username: event.target.value })} /></label>
+        <select aria-label="登录状态筛选" value={editingFilters.authType} onChange={(event) => setEditingFilters({ ...editingFilters, authType: event.target.value })}><option value="">全部用户</option><option value="external">已登录</option><option value="anonymous">匿名</option></select>
         <select aria-label="角色筛选" value={editingFilters.role} onChange={(event) => setEditingFilters({ ...editingFilters, role: event.target.value })}><option value="">全部角色</option>{catalog?.roles.map((role) => <option value={role.id} key={role.id}>{role.label}</option>)}</select>
         <select aria-label="页面筛选" value={editingFilters.page} onChange={(event) => setEditingFilters({ ...editingFilters, page: event.target.value })}><option value="">全部页面</option>{catalog?.pages.map((page) => <option value={page.id} key={page.id}>{page.name}</option>)}</select>
         <select aria-label="附件筛选" value={editingFilters.hasAttachments} onChange={(event) => setEditingFilters({ ...editingFilters, hasAttachments: event.target.value })}><option value="">全部附件状态</option><option value="true">有截图</option><option value="false">无截图</option></select>
@@ -87,7 +90,7 @@ export function ResultsView() {
         <button type="button" className="admin-button" onClick={() => { setEditingFilters(EMPTY_FILTERS); setAppliedFilters(EMPTY_FILTERS) }}><X size={15} />重置</button>
       </form>
       {error ? <div className="admin-error">{error}</div> : null}
-      <div className="result-table-wrap"><table className="result-table"><thead><tr><th>提交编号</th><th>提交时间</th><th>角色</th><th>重点页面</th><th>截图</th><th /></tr></thead><tbody>{rows.map((row) => <tr key={row.id} onClick={() => adminApi.detail(row.id).then(setDetail).catch((reason) => setError(reason.message))}><td><strong>{row.submissionId}</strong><small>{row.surveyId}</small></td><td>{new Date(row.submittedAt).toLocaleString('zh-CN')}</td><td>{row.roles.map((id) => row.roleNames[id] ?? id).join('、')}</td><td>{row.pages.map((id) => row.pageNames[id] ?? id).join('、')}</td><td>{row.attachmentCount}</td><td><ChevronRight size={16} /></td></tr>)}</tbody></table>{rows.length === 0 ? <div className="admin-empty">暂无符合条件的提交</div> : null}</div>
+      <div className="result-table-wrap"><table className="result-table"><thead><tr><th>提交编号</th><th>用户</th><th>提交时间</th><th>角色</th><th>重点页面</th><th>截图</th><th /></tr></thead><tbody>{rows.map((row) => <tr key={row.id} onClick={() => adminApi.detail(row.id).then(setDetail).catch((reason) => setError(reason.message))}><td><strong>{row.submissionId}</strong><small>{row.surveyId}</small></td><td>{row.username ?? '匿名'}</td><td>{new Date(row.submittedAt).toLocaleString('zh-CN')}</td><td>{row.roles.map((id) => row.roleNames[id] ?? id).join('、')}</td><td>{row.pages.map((id) => row.pageNames[id] ?? id).join('、')}</td><td>{row.attachmentCount}</td><td><ChevronRight size={16} /></td></tr>)}</tbody></table>{rows.length === 0 ? <div className="admin-empty">暂无符合条件的提交</div> : null}</div>
       <div className="table-footer"><span>已显示 {rows.length} 条</span>{nextCursor ? <button className="admin-button" onClick={() => void load(true, nextCursor)}>加载更多</button> : null}</div>
       {detail ? <DetailDrawer detail={detail} onClose={() => setDetail(undefined)} /> : null}
     </div>

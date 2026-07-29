@@ -13,6 +13,9 @@ export interface SubmissionRow {
   roleNames: Record<string, string>
   pageNames: Record<string, string>
   attachmentCount: number
+  authType?: 'external' | 'anonymous'
+  externalUserId?: string
+  username?: string
 }
 
 export interface SubmissionFilterCatalog {

@@ -4,8 +4,11 @@ import {
   ArrowRight,
   Check,
   ClipboardCheck,
+  LogIn,
+  LogOut,
   LoaderCircle,
   RotateCcw,
+  UserRound,
 } from 'lucide-react'
 import { CompletionScreen } from './features/survey/CompletionScreen'
 import { createDraft, emptyOtherReview, emptyPageReview, reconcileDraft, selectFavoritePage } from './features/survey/draft'
@@ -20,6 +23,9 @@ import {
   fileToDataUrl,
   getAttachments,
   loadDraft,
+  claimPendingAnonymousDraft,
+  markPendingAnonymousDraftClaim,
+  ownerKeyForUser,
   pruneAttachments,
   putAttachments,
   removeAttachment,
@@ -27,6 +33,7 @@ import {
   validateAttachmentFiles,
 } from './services/storage'
 import { buildSubmission, surveyService } from './services/surveyService'
+import { loadUserSession, logoutUser } from './services/userSession'
 import type {
   AttachmentRecord,
   OtherPageReview,
@@ -34,6 +41,7 @@ import type {
   PageReview,
   PublishedSurvey,
   SurveyDraft,
+  UserSession,
 } from './types'
 import { createId } from './utils/id'
 
@@ -54,6 +62,7 @@ const STEP_LABELS = [
 
 
 export default function App() {
+  const [userSession, setUserSession] = useState<UserSession | null>(null)
   const [survey, setSurvey] = useState<PublishedSurvey | null>(null)
   const [draft, setDraft] = useState<SurveyDraft | null>(null)
   const [loadingError, setLoadingError] = useState('')
@@ -65,28 +74,33 @@ export default function App() {
   const [previews, setPreviews] = useState<Record<string, string>>({})
   const [attachmentError, setAttachmentError] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [draftNotice, setDraftNotice] = useState('')
+  const ownerKey = ownerKeyForUser(userSession?.user?.externalUserId)
 
   useEffect(() => {
     clearLegacyBrowserData()
-    Promise.all([loadPublishedSurvey(), getAttachments().catch(() => [])]).then(async ([published, records]) => {
-      if (!published) {
-        setLoadingError('暂时无法加载问卷，请检查网络后刷新页面。')
-        return
+    Promise.all([loadUserSession(), loadPublishedSurvey()]).then(async ([nextSession, published]) => {
+      if (!published) throw new Error('暂时无法加载问卷，请检查网络后刷新页面。')
+      const nextOwnerKey = ownerKeyForUser(nextSession.user?.externalUserId)
+      if (nextSession.user && await claimPendingAnonymousDraft(nextOwnerKey) === 'conflict') {
+        setDraftNotice('登录账号已有保存的草稿，当前继续账号草稿；刚才的匿名草稿仍已保留。')
       }
-      const restored = loadDraft()
+      const records = await getAttachments(nextOwnerKey).catch(() => [])
+      const restored = loadDraft(nextOwnerKey)
       const nextDraft = reconcileDraft(restored ?? createDraft(published.versionId), published)
       const attachmentIds = new Set(nextDraft.attachments.map((attachment) => attachment.id))
       const activeRecords = attachmentRecordsForDraft(records, attachmentIds)
-      await pruneAttachments(attachmentIds).catch(() => undefined)
+      await pruneAttachments(attachmentIds, nextOwnerKey).catch(() => undefined)
+      setUserSession(nextSession)
       setSurvey(published)
       setDraft(nextDraft)
       setPreviews(Object.fromEntries(activeRecords.map((record) => [record.id, record.dataUrl])))
-    })
+    }).catch((reason) => setLoadingError(reason instanceof Error ? reason.message : '问卷加载失败'))
   }, [])
 
   useEffect(() => {
-    if (draft) saveDraft(draft)
-  }, [draft])
+    if (draft && userSession) saveDraft(draft, ownerKey)
+  }, [draft, ownerKey, userSession])
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -114,7 +128,7 @@ export default function App() {
   }, [draft, highestCandidates])
 
   if (loadingError) return <main className="load-state"><ClipboardCheck size={32} /><h1>问卷加载失败</h1><p>{loadingError}</p></main>
-  if (!survey || !draft) return <main className="load-state"><LoaderCircle className="spin" size={28} /><p>正在加载问卷…</p></main>
+  if (!survey || !draft || !userSession) return <main className="load-state"><LoaderCircle className="spin" size={28} /><p>正在加载问卷…</p></main>
 
   const set = (changes: Partial<SurveyDraft>) => setDraft({ ...draft, ...changes, updatedAt: new Date().toISOString() })
   const updateTopSelection = (pageId: string) => {
@@ -165,11 +179,11 @@ export default function App() {
     }
     setSubmitting(true)
     try {
-      const records = await getAttachments()
+      const records = await getAttachments(ownerKey)
       const result = await surveyService.submit(buildSubmission(draft), records)
       setSubmissionId(result.submissionId)
-      clearDraft()
-      await clearAttachments()
+      clearDraft(ownerKey)
+      await clearAttachments(ownerKey)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '提交失败，请稍后重试。')
     } finally {
@@ -195,7 +209,7 @@ export default function App() {
         }
         additions.push(record)
       }
-      await putAttachments(additions)
+      await putAttachments(additions, ownerKey)
       const attachmentMetas = additions.map((item) => ({
           id: item.id,
           questionId: item.questionId,
@@ -217,7 +231,7 @@ export default function App() {
   }
 
   const remove = async (id: string) => {
-    await removeAttachment(id).catch(() => undefined)
+    await removeAttachment(id, ownerKey).catch(() => undefined)
     setPreviews((current) => {
       const next = { ...current }
       delete next[id]
@@ -232,8 +246,8 @@ export default function App() {
 
   const reset = async () => {
     if (!window.confirm('确定清除当前答案和截图并重新开始吗？')) return
-    clearDraft()
-    await clearAttachments().catch(() => undefined)
+    clearDraft(ownerKey)
+    await clearAttachments(ownerKey).catch(() => undefined)
     setPreviews({})
     setDraft(createDraft(survey.versionId))
   }
@@ -255,8 +269,19 @@ export default function App() {
       <header className="app-header">
         <div><span>DML</span><strong>{survey.title}</strong></div>
         <div className="header-progress"><span style={{ width: `${progress}%` }} /></div>
-        <button type="button" className="icon-button" title="重新填写" onClick={reset}><RotateCcw size={18} /></button>
+        <div className="header-actions">
+          {userSession.user ? (
+            <div className="signed-user"><UserRound size={17} /><strong>{userSession.user.username}</strong></div>
+          ) : userSession.ssoEnabled && userSession.loginUrl ? (
+            <a href={userSession.loginUrl} className="login-reward" onClick={() => markPendingAnonymousDraftClaim(draft.id)}>
+              <LogIn size={16} /><span>登录填写，有机会获得奖励</span>
+            </a>
+          ) : <span className="anonymous-user">匿名填写</span>}
+          {userSession.user ? <button type="button" className="icon-button" title="退出登录" onClick={() => logoutUser().then(() => window.location.reload()).catch((reason) => setError(reason.message))}><LogOut size={18} /></button> : null}
+          <button type="button" className="icon-button" title="重新填写" onClick={reset}><RotateCcw size={18} /></button>
+        </div>
       </header>
+      {draftNotice ? <div className="draft-notice" role="status">{draftNotice}</div> : null}
       <div className="survey-layout">
         <aside className="step-rail" aria-label="问卷进度">
           {STEP_LABELS.map((label, index) => (

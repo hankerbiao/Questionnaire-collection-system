@@ -37,7 +37,13 @@ class SubmissionService:
     def __init__(self, repository: Repository) -> None:
         self.repository = repository
 
-    async def submit(self, payload: SurveySubmission, files: list[UploadFile]) -> str:
+    async def submit(
+        self,
+        payload: SurveySubmission,
+        files: list[UploadFile],
+        respondent: dict[str, str] | None = None,
+    ) -> str:
+        respondent = respondent or {"auth_type": "anonymous"}
         await self._validate_survey_version(payload)
         metadata_by_id = payload.attachment_map()
         uploads_by_id = self._map_uploads(files)
@@ -55,7 +61,7 @@ class SubmissionService:
         for attachment_id, upload in uploads_by_id.items():
             file_digests[attachment_id] = await self._validate_file(metadata_by_id[attachment_id], upload)
 
-        request_digest = self._request_digest(payload, file_digests)
+        request_digest = self._request_digest(payload, file_digests, respondent)
         await self.repository.ensure_indexes()
         existing = await self.repository.find_by_survey_id(payload.survey_id)
         if existing:
@@ -84,6 +90,7 @@ class SubmissionService:
                 "submitted_at": payload.submitted_at,
                 "received_at": datetime.now(UTC),
                 "payload": payload.model_dump(by_alias=True, mode="json"),
+                "respondent": respondent,
                 "attachments": uploaded,
             })
             committed = True
@@ -200,11 +207,19 @@ class SubmissionService:
             image.verify()
 
     @staticmethod
-    def _request_digest(payload: SurveySubmission, file_digests: dict[str, str]) -> str:
+    def _request_digest(
+        payload: SurveySubmission,
+        file_digests: dict[str, str],
+        respondent: dict[str, str] | None = None,
+    ) -> str:
         payload_data = payload.model_dump(by_alias=True, mode="json")
         payload_data.pop("submittedAt", None)
         canonical = json.dumps(
-            {"payload": payload_data, "files": file_digests},
+            {
+                "payload": payload_data,
+                "files": file_digests,
+                "respondent": respondent or {"auth_type": "anonymous"},
+            },
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,

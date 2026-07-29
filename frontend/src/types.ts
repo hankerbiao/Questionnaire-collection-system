@@ -106,3 +106,15 @@ export interface SurveySubmission {
   issueEvidence: { description: string; attachments: AttachmentMeta[] }
   finalFeedback: string
 }
+
+export interface ExternalUser {
+  externalUserId: string
+  username: string
+}
+
+export interface UserSession {
+  authenticated: boolean
+  user: ExternalUser | null
+  ssoEnabled: boolean
+  loginUrl: string | null
+}
