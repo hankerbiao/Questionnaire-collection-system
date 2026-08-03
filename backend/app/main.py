@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.default_survey import default_survey
 from app.repository import SubmissionRepository
 from app.user_api import router as user_router
+from app.user_submissions_api import router as user_submissions_router
 
 logger = logging.getLogger(__name__)
 
@@ -79,5 +80,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(router)
+app.include_router(user_submissions_router)
 app.include_router(user_router)
 app.include_router(admin_router)

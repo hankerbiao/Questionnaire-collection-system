@@ -121,6 +121,7 @@ class SurveyRepositoryMixin:
                         "created_at": now,
                         "updated_at": now,
                         "published_at": now,
+                        "closed_at": None,
                     }
                 )
                 await self.survey_versions.update_many(
@@ -136,6 +137,15 @@ class SurveyRepositoryMixin:
                     return await session.with_transaction(publish_transaction)
             except DuplicateKeyError:
                 raise ValueError("问卷版本正在被其他管理员发布，请刷新后重试") from None
+
+    async def set_survey_closed(self, survey_key: str, closed: bool) -> dict[str, Any] | None:
+        now = datetime.now(UTC)
+        return await self.survey_versions.find_one_and_update(
+            {"survey_key": survey_key, "status": "published"},
+            {"$set": {"closed_at": now if closed else None, "updated_at": now}},
+            sort=[("version", DESCENDING)],
+            return_document=ReturnDocument.AFTER,
+        )
 
     @staticmethod
     def survey_document(document: dict[str, Any]) -> SurveyVersion:
@@ -168,6 +178,7 @@ class SurveyRepositoryMixin:
                 "version": document["version"],
                 "status": document["status"],
                 "published_at": document.get("published_at"),
+                "closed_at": document.get("closed_at"),
                 "submission_count": counts.get(str(document["_id"]), 0),
             }
             for document in documents

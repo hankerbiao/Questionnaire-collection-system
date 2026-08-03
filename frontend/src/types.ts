@@ -34,6 +34,7 @@ export interface SurveyVersionData {
   roles: RoleDefinition[]
   pages: PageDefinition[]
   publishedAt?: string
+  closedAt?: string | null
 }
 
 export interface PublishedSurvey extends SurveyVersionData {
@@ -117,4 +118,39 @@ export interface UserSession {
   user: ExternalUser | null
   ssoEnabled: boolean
   loginUrl: string | null
+}
+
+export interface MySubmissionRow {
+  id: string
+  submissionId: string
+  surveyId: string
+  surveyVersionId: string
+  submittedAt: string
+  updatedAt?: string | null
+  version: number
+  revisionCount: number
+  attachmentCount: number
+}
+
+export interface SubmissionAttachment {
+  id: string
+  attachmentId: string
+  name: string
+  type: string
+  size: number
+  available?: boolean
+}
+
+export interface SubmissionRevision {
+  index: number
+  editedAt: string
+  payload: SurveySubmission
+  attachments: SubmissionAttachment[]
+}
+
+export interface MySubmissionDetail extends MySubmissionRow {
+  payload: SurveySubmission
+  attachments: SubmissionAttachment[]
+  revisions: SubmissionRevision[]
+  surveyClosed: boolean
 }

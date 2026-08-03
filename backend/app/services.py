@@ -14,6 +14,7 @@ from app.models import MAX_ATTACHMENT_SIZE, AttachmentMeta, SurveySubmission
 from app.survey_models import SurveyVersion
 
 READ_CHUNK_SIZE = 256 * 1024
+MAX_SUBMISSION_EDITS = 20
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +32,9 @@ class Repository(Protocol):
     async def delete_attachment(self, file_id: Any) -> None: ...
     async def insert_submission(self, document: dict[str, Any]) -> None: ...
     async def get_survey_version(self, version_id: str) -> dict[str, Any] | None: ...
+    async def get_current_survey(self, survey_key: str = "dml-v4") -> dict[str, Any] | None: ...
+    async def get_owned_submission(self, submission_id: str, external_user_id: str) -> dict[str, Any] | None: ...
+    async def replace_submission_payload(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None: ...
 
 
 class SubmissionService:
@@ -92,6 +96,9 @@ class SubmissionService:
                 "payload": payload.model_dump(by_alias=True, mode="json"),
                 "respondent": respondent,
                 "attachments": uploaded,
+                "version": 1,
+                "updated_at": None,
+                "revisions": [],
             })
             committed = True
         except DuplicateKeyError:
@@ -109,11 +116,129 @@ class SubmissionService:
                     raise
         return submission_id
 
+    async def edit(
+        self,
+        submission_id: str,
+        payload: SurveySubmission,
+        files: list[UploadFile],
+        user_id: str,
+        expected_version: int,
+    ) -> dict[str, Any]:
+        existing = await self.repository.get_owned_submission(submission_id, user_id)
+        if existing is None:
+            raise SubmissionError(404, "提交记录不存在")
+
+        current_survey = await self.repository.get_current_survey()
+        if current_survey and current_survey.get("closed_at") is not None:
+            raise SubmissionError(403, "问卷收集已截止")
+
+        if payload.survey_id != existing.get("survey_id"):
+            raise SubmissionError(400, "问卷 ID 与原提交不一致")
+        if payload.survey_version_id != existing.get("survey_version_id"):
+            raise SubmissionError(400, "问卷版本与原提交不一致")
+
+        current_version = int(existing.get("version", 1))
+        if expected_version != current_version:
+            raise SubmissionError(409, "该提交已在其他窗口被修改，请刷新后重试")
+        if current_version >= MAX_SUBMISSION_EDITS:
+            raise SubmissionError(409, "修改次数已达上限")
+
+        await self._validate_survey_version(payload)
+
+        existing_by_id = {item["attachment_id"]: item for item in existing.get("attachments", [])}
+        metadata_by_id = payload.attachment_map()
+        uploads_by_id = self._map_uploads(files)
+        kept_ids = set(metadata_by_id) & set(existing_by_id)
+        new_ids = set(metadata_by_id) - kept_ids
+        if set(uploads_by_id) != new_ids:
+            missing = sorted(new_ids - set(uploads_by_id))
+            extra = sorted(set(uploads_by_id) - new_ids)
+            detail = "附件与问卷元数据不匹配"
+            if missing:
+                detail += f"，缺少：{', '.join(missing)}"
+            if extra:
+                detail += f"，多余：{', '.join(extra)}"
+            raise SubmissionError(400, detail)
+        removed_ids = set(existing_by_id) - kept_ids
+        for attachment_id in kept_ids:
+            kept = existing_by_id[attachment_id]
+            meta = metadata_by_id[attachment_id]
+            if kept.get("original_name") != meta.name or kept.get("content_type") != meta.type or kept.get("size") != meta.size:
+                raise SubmissionError(400, f"附件 {attachment_id} 的元数据与原提交不一致")
+
+        file_digests: dict[str, str] = {}
+        for attachment_id in new_ids:
+            file_digests[attachment_id] = await self._validate_file(metadata_by_id[attachment_id], uploads_by_id[attachment_id])
+
+        request_digest = self._request_digest(payload, file_digests, existing.get("respondent"))
+        await self.repository.ensure_indexes()
+
+        uploaded: list[dict[str, Any]] = []
+        committed = False
+        try:
+            for attachment_id in new_ids:
+                metadata = metadata_by_id[attachment_id]
+                file_id = await self.repository.upload_attachment(metadata, uploads_by_id[attachment_id])
+                uploaded.append({
+                    "attachment_id": metadata.id,
+                    "question_id": metadata.question_id,
+                    "gridfs_id": file_id,
+                    "original_name": metadata.name,
+                    "content_type": metadata.type,
+                    "size": metadata.size,
+                })
+            ordered_attachments = [
+                existing_by_id[attachment_id]
+                for attachment_id in metadata_by_id
+                if attachment_id in kept_ids
+            ] + uploaded
+            snapshot = {
+                "edited_at": datetime.now(UTC),
+                "payload": existing.get("payload", {}),
+                "attachments": existing.get("attachments", []),
+                "request_digest": existing.get("request_digest"),
+            }
+            updated = await self.repository.replace_submission_payload(
+                submission_id=submission_id,
+                external_user_id=user_id,
+                expected_version=current_version,
+                payload=payload.model_dump(by_alias=True, mode="json"),
+                attachments=ordered_attachments,
+                request_digest=request_digest,
+                snapshot=snapshot,
+                submitted_at=existing.get("submitted_at"),
+            )
+            if updated is None:
+                raise SubmissionError(409, "该提交已被其他修改抢先更新，请刷新后重试")
+            committed = True
+        except DuplicateKeyError:
+            raise
+        finally:
+            if not committed and uploaded:
+                cleanup_task = asyncio.create_task(self._cleanup(uploaded))
+                try:
+                    await asyncio.shield(cleanup_task)
+                except asyncio.CancelledError:
+                    await cleanup_task
+                    raise
+
+        for gridfs_id in {existing_by_id[attachment_id].get("gridfs_id") for attachment_id in removed_ids}:
+            if gridfs_id is None:
+                continue
+            try:
+                await self.repository.delete_attachment(gridfs_id)
+            except Exception:
+                logger.exception("Failed to delete replaced GridFS attachment %s", gridfs_id)
+
+        return updated
+
     async def _validate_survey_version(self, payload: SurveySubmission) -> SurveyVersion:
         document = await self.repository.get_survey_version(payload.survey_version_id)
         if document is None:
             raise SubmissionError(400, "问卷版本不存在或尚未发布")
         version = SurveyVersion.model_validate({**document, "versionId": str(document["_id"])})
+        if version.closed_at is not None:
+            raise SubmissionError(403, "问卷收集已截止")
         enabled_pages = {page.id: page for page in version.pages if page.enabled}
         enabled_roles = {role.id for role in version.roles}
 

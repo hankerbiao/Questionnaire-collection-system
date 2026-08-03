@@ -8,7 +8,6 @@ from collections.abc import AsyncIterator
 from datetime import datetime, time, timedelta
 from typing import Any, Annotated
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
@@ -23,22 +22,11 @@ from app.auth import (
     verify_login,
 )
 from app.config import Settings, get_settings
+from app.serialization import json_value as _json_value
 from app.survey_models import SurveyDraftUpdate, SurveyVersion, SurveyVersionSummary
 
 router = APIRouter(prefix="/api/v1/admin")
 logger = logging.getLogger(__name__)
-
-
-def _json_value(value: Any) -> Any:
-    if isinstance(value, ObjectId):
-        return str(value)
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, dict):
-        return {key: _json_value(item) for key, item in value.items() if key != "_id"}
-    if isinstance(value, list):
-        return [_json_value(item) for item in value]
-    return value
 
 
 def _filters(
@@ -117,6 +105,9 @@ def _summary(document: dict[str, Any], version: SurveyVersion | None = None) -> 
         "authType": respondent.get("auth_type", "anonymous"),
         "externalUserId": respondent.get("external_user_id"),
         "username": respondent.get("username"),
+        "version": int(document.get("version", 1)),
+        "revisionCount": len(document.get("revisions", [])),
+        "updatedAt": document.get("updated_at"),
     }
 
 
@@ -433,6 +424,35 @@ async def publish(
             extra={"survey_key": survey_key, "version": document["version"]},
         )
     return get_repository(request).survey_document(document)
+
+
+async def _set_closed(request: Request, survey_key: str, admin: AdminDependency, closed: bool) -> SurveyVersion:
+    enforce_same_origin(request)
+    document = await get_repository(request).set_survey_closed(survey_key, closed)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="暂无已发布问卷")
+    try:
+        await get_repository(request).write_audit(
+            admin.username,
+            "close_survey" if closed else "reopen_survey",
+            {"surveyKey": survey_key, "version": document.get("version")},
+        )
+    except Exception:
+        logger.exception(
+            "Survey close state changed but its audit event could not be stored",
+            extra={"survey_key": survey_key, "closed": closed},
+        )
+    return get_repository(request).survey_document(document)
+
+
+@router.post("/surveys/{survey_key}/close", response_model=SurveyVersion)
+async def close_collection(request: Request, survey_key: str, admin: AdminDependency) -> SurveyVersion:
+    return await _set_closed(request, survey_key, admin, True)
+
+
+@router.post("/surveys/{survey_key}/reopen", response_model=SurveyVersion)
+async def reopen_collection(request: Request, survey_key: str, admin: AdminDependency) -> SurveyVersion:
+    return await _set_closed(request, survey_key, admin, False)
 
 
 @router.get("/surveys/{survey_key}/versions", response_model=list[SurveyVersionSummary])

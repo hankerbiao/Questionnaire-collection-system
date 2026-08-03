@@ -199,6 +199,20 @@ def optional_user(
 UserDependency = Annotated[ExternalUser | None, Depends(optional_user)]
 
 
+def require_user(
+    user: Annotated[ExternalUser | None, Depends(optional_user)],
+) -> ExternalUser:
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="请先登录后查看或修改提交",
+        )
+    return user
+
+
+RequiredUserDependency = Annotated[ExternalUser, Depends(require_user)]
+
+
 def respondent_document(user: ExternalUser | None) -> dict[str, str]:
     if user is None:
         return {"auth_type": "anonymous"}

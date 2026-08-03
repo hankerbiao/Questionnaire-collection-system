@@ -13,7 +13,7 @@ const CELEBRATION_PIECES = [
   { x: 8, y: 74, rotate: 32, color: '#287c68', delay: 0.26 },
 ] as const
 
-export function CompletionScreen({ submissionId, onRestart }: { submissionId: string; onRestart: () => void }) {
+export function CompletionScreen({ submissionId, onRestart, onViewMine }: { submissionId: string; onRestart: () => void; onViewMine?: () => void }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => headingRef.current?.focus(), [])
 
@@ -32,6 +32,7 @@ export function CompletionScreen({ submissionId, onRestart }: { submissionId: st
       <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.27 }}>感谢你提供具体、可落地的 DML 使用反馈。</motion.p>
       <motion.code initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: 0.34 }}>{submissionId}</motion.code>
       <motion.button type="button" className="primary-button" onClick={onRestart} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.38 }}>填写另一份</motion.button>
+      {onViewMine ? <motion.button type="button" className="secondary-button" onClick={onViewMine} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.44 }}>查看我的提交</motion.button> : null}
     </motion.main>
   )
 }

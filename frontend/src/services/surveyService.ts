@@ -57,6 +57,22 @@ export class HttpSurveyService {
     if (!body?.submissionId) throw new Error('服务器未返回有效提交编号')
     return { submissionId: body.submissionId }
   }
+
+  async edit(submissionId: string, payload: SurveySubmission, attachments: AttachmentRecord[], expectedVersion: number) {
+    const records = new Map(attachments.map((item) => [item.id, item]))
+    const form = new FormData()
+    form.append('payload', JSON.stringify(payload))
+    form.append('expectedVersion', String(expectedVersion))
+    for (const meta of payload.issueEvidence.attachments) {
+      const record = records.get(meta.id)
+      if (record) form.append('files', dataUrlToBlob(record), record.id)
+    }
+    const response = await fetch(`${this.base.replace(/\/$/, '')}/submissions/${encodeURIComponent(submissionId)}`, { method: 'PUT', body: form })
+    const body = await response.json().catch(() => null) as { submissionId?: string; version?: number; detail?: unknown } | null
+    if (!response.ok) throw new Error(typeof body?.detail === 'string' ? body.detail : `保存失败（HTTP ${response.status}）`)
+    if (!body?.submissionId) throw new Error('服务器未返回有效提交编号')
+    return { submissionId: body.submissionId, version: body.version ?? expectedVersion }
+  }
 }
 
 export const surveyService = new HttpSurveyService()

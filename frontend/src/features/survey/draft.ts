@@ -1,4 +1,4 @@
-import type { OtherPageReview, PageReview, PublishedSurvey, SurveyDraft } from '../../types'
+import type { OtherPageReview, PageReview, PublishedSurvey, SurveyDraft, SurveySubmission } from '../../types'
 import { createId } from '../../utils/id'
 
 const ROLE_CONTEXT_TEMPLATE = `1. 我负责哪些项目和团队：
@@ -64,3 +64,29 @@ export function reconcileDraft(draft: SurveyDraft, survey: PublishedSurvey): Sur
 export const selectFavoritePage = (review: SurveyDraft['favoritePageReview'], pageId: string) => (
   review.pageId === pageId ? review : { pageId, winningReason: '', improvement: '' }
 )
+
+export function draftFromSubmission(payload: SurveySubmission): SurveyDraft {
+  return {
+    schemaVersion: 1,
+    id: payload.surveyId,
+    surveyVersionId: payload.surveyVersionId,
+    createdAt: payload.startedAt,
+    updatedAt: new Date().toISOString(),
+    currentStep: 0,
+    roleIds: payload.profile.roleIds,
+    roleContext: payload.profile.roleContext,
+    topPageIds: payload.topPageIds,
+    topPageReviews: payload.topPageReviews.map((review) => ({
+      pageId: review.pageId,
+      overallScore: review.overallScore,
+      featureScores: review.featureScores,
+      strengths: review.strengths,
+      painPoints: review.painPoints,
+    })),
+    favoritePageReview: payload.favoritePageReview,
+    otherPageReviews: payload.otherPageReviews,
+    issueDescription: payload.issueEvidence.description,
+    attachments: payload.issueEvidence.attachments,
+    finalFeedback: payload.finalFeedback,
+  }
+}

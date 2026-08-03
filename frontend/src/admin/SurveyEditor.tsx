@@ -1,5 +1,5 @@
-import { Check, GripVertical, Plus, Save, Trash2, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { CalendarX2, Check, GripVertical, Plus, Save, Trash2, Unlock, X } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 import type { PageDefinition, PageFeatureDefinition, RoleDefinition } from '../types'
 import { createId } from '../utils/id'
 import { adminApi } from './api'
@@ -12,12 +12,25 @@ const newRole = (): RoleDefinition => ({ id: createId('role-', 8), label: '新�
 export function SurveyEditor({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
   const [draft, setDraft] = useState<SurveyVersionConfig>()
   const [baseline, setBaseline] = useState('')
+  const [published, setPublished] = useState<{ version: number; closedAt?: string | null }>()
   const [selectedPage, setSelectedPage] = useState(0)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const dirty = Boolean(draft && JSON.stringify(draft) !== baseline)
   useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
-  useEffect(() => { adminApi.draft().then((value) => { setDraft(value); setBaseline(JSON.stringify(value)) }).catch((reason) => setMessage(reason.message)) }, [])
+  useEffect(() => {
+    adminApi.draft()
+      .then((value) => { setDraft(value); setBaseline(JSON.stringify(value)) })
+      .catch((reason) => setMessage(reason.message))
+    adminApi.versions()
+      .then((items) => { const current = items.find((item) => item.status === 'published'); if (current) setPublished({ version: current.version, closedAt: current.closedAt }) })
+      .catch(() => undefined)
+  }, [])
+  const refreshPublished = useCallback(async () => {
+    const items = await adminApi.versions()
+    const current = items.find((item) => item.status === 'published')
+    if (current) setPublished({ version: current.version, closedAt: current.closedAt })
+  }, [])
   if (!draft) return <div className="admin-loading">{message || '正在加载问卷草稿…'}</div>
   const page = draft.pages[selectedPage]
   const updatePage = (next: PageDefinition) => setDraft({ ...draft, pages: draft.pages.map((item, index) => index === selectedPage ? next : item) })
@@ -33,10 +46,24 @@ export function SurveyEditor({ onDirtyChange }: { onDirtyChange: (dirty: boolean
     setBusy(true)
     try {
       const current = dirty ? await adminApi.saveDraft(draft) : draft
-      const published = await adminApi.publish(current.revision)
+      const publishedVersion = await adminApi.publish(current.revision)
       const next = await adminApi.draft()
-      setDraft(next); setBaseline(JSON.stringify(next)); setMessage(`版本 ${published.version} 已发布`)
+      setDraft(next); setBaseline(JSON.stringify(next)); setMessage(`版本 ${publishedVersion.version} 已发布`)
+      await refreshPublished()
     } catch (reason) { setMessage(reason instanceof Error ? reason.message : '发布失败') }
+    finally { setBusy(false) }
+  }
+  const toggleClosed = async () => {
+    const closing = !published?.closedAt
+    if (busy || !confirm(closing
+      ? '截止后用户将无法提交新问卷（已提交记录不受影响），确认继续？'
+      : '重新开启后用户可以继续提交，确认继续？')) return
+    setBusy(true)
+    try {
+      const next = closing ? await adminApi.closeCollection() : await adminApi.reopenCollection()
+      setPublished({ version: next.version, closedAt: next.closedAt })
+      setMessage(closing ? '问卷收集已截止' : '问卷收集已重新开启')
+    } catch (reason) { setMessage(reason instanceof Error ? reason.message : '操作失败') }
     finally { setBusy(false) }
   }
   const movePage = (index: number, delta: number) => {
@@ -50,7 +77,7 @@ export function SurveyEditor({ onDirtyChange }: { onDirtyChange: (dirty: boolean
 
   return (
     <div className="admin-view catalog-editor">
-      <header className="admin-page-head"><div><h1>问卷与页面目录</h1><p>固定问卷流程 · 草稿修订 {draft.revision} · {busy ? '正在处理' : dirty ? '有未保存修改' : '已保存'}</p></div><div><button className="admin-button" disabled={!dirty || busy} onClick={save}><Save size={16} />保存草稿</button><button className="admin-primary" disabled={busy} onClick={publish}><Check size={16} />发布版本</button></div></header>
+      <header className="admin-page-head"><div><h1>问卷与页面目录</h1><p>固定问卷流程 · 草稿修订 {draft.revision} · {busy ? '正在处理' : dirty ? '有未保存修改' : '已保存'} · {published?.closedAt ? `已截止（${new Date(published.closedAt).toLocaleString('zh-CN')}）` : '收集中'}</p></div><div><button className="admin-button" disabled={!dirty || busy} onClick={save}><Save size={16} />保存草稿</button><button className={published?.closedAt ? 'admin-button' : 'admin-button danger'} disabled={busy || !published} onClick={toggleClosed}>{published?.closedAt ? <><Unlock size={16} />重新开启</> : <><CalendarX2 size={16} />截止收集</>}</button><button className="admin-primary" disabled={busy} onClick={publish}><Check size={16} />发布版本</button></div></header>
       {message ? <div className="admin-message">{message}<button onClick={() => setMessage('')}><X size={14} /></button></div> : null}
       <fieldset className="editor-body" disabled={busy}>
         <section className="survey-basics"><label><span>问卷标题</span><input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label><label><span>问卷说明</span><textarea rows={3} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label></section>

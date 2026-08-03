@@ -16,6 +16,9 @@ export interface SubmissionRow {
   authType?: 'external' | 'anonymous'
   externalUserId?: string
   username?: string
+  version?: number
+  revisionCount?: number
+  updatedAt?: string | null
 }
 
 export interface SubmissionFilterCatalog {

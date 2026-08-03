@@ -25,6 +25,9 @@ class FakeRepository:
         self.document: dict[str, Any] | None = None
         self.insert_error: Exception | None = None
         self.version_document: dict[str, Any] | None = published_version_document()
+        self.current_survey: dict[str, Any] | None = published_version_document()
+        self.owned: bool = True
+        self.updated: dict[str, Any] | None = None
 
     async def ensure_indexes(self) -> None: pass
     async def find_by_survey_id(self, survey_id: str) -> dict[str, Any] | None: return self.existing
@@ -35,6 +38,34 @@ class FakeRepository:
         if self.insert_error: raise self.insert_error
         self.document = document
     async def get_survey_version(self, version_id: str) -> dict[str, Any] | None: return self.version_document
+    async def get_current_survey(self, survey_key: str = "dml-v4") -> dict[str, Any] | None: return self.current_survey
+    async def get_owned_submission(self, submission_id: str, external_user_id: str) -> dict[str, Any] | None:
+        return self.existing if self.owned else None
+    async def replace_submission_payload(
+        self,
+        *,
+        submission_id: str,
+        external_user_id: str,
+        expected_version: int,
+        payload: dict[str, Any],
+        attachments: list[dict[str, Any]],
+        request_digest: str,
+        snapshot: dict[str, Any],
+        submitted_at: Any,
+    ) -> dict[str, Any] | None:
+        base = dict(self.existing or {})
+        base.update({
+            "payload": payload,
+            "attachments": attachments,
+            "request_digest": request_digest,
+            "submitted_at": submitted_at,
+            "version": expected_version + 1,
+        })
+        revisions = list(base.get("revisions", []))
+        revisions.append(snapshot)
+        base["revisions"] = revisions
+        self.updated = base
+        return base
 
 
 def published_version_document() -> dict[str, Any]:
@@ -116,3 +147,63 @@ def test_rejects_images_above_pixel_limit(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(Image, "open", lambda source: OversizedImage())
     with pytest.raises(ValueError, match="dimensions"):
         SubmissionService._verify_image(BytesIO(PNG_BYTES), "image/png")
+
+
+def owned_submission_document() -> dict[str, Any]:
+    return {
+        "survey_id": "survey-1",
+        "survey_version_id": VERSION_ID,
+        "submission_id": "DML-EDIT-1",
+        "version": 1,
+        "revisions": [],
+        "attachments": [],
+        "request_digest": "original",
+        "submitted_at": "2026-07-24T02:00:00Z",
+        "respondent": {"auth_type": "external", "external_user_id": "demo-1", "username": "张三"},
+    }
+
+
+async def test_edit_stores_new_payload_and_records_revision() -> None:
+    repository = FakeRepository()
+    repository.existing = owned_submission_document()
+    result = await SubmissionService(repository).edit("DML-EDIT-1", payload(), [], "demo-1", expected_version=1)
+    assert repository.updated is not None
+    assert repository.updated["version"] == 2
+    assert len(repository.updated["revisions"]) == 1
+    assert repository.updated["revisions"][0]["request_digest"] == "original"
+    assert result["version"] == 2
+
+
+async def test_edit_rejects_stale_expected_version() -> None:
+    repository = FakeRepository()
+    repository.existing = owned_submission_document()
+    with pytest.raises(SubmissionError, match="其他窗口"):
+        await SubmissionService(repository).edit("DML-EDIT-1", payload(), [], "demo-1", expected_version=2)
+
+
+async def test_edit_rejects_when_survey_closed() -> None:
+    repository = FakeRepository()
+    repository.existing = owned_submission_document()
+    closed = published_version_document()
+    closed["closed_at"] = "2026-08-03T00:00:00Z"
+    repository.current_survey = closed
+    repository.version_document = closed
+    with pytest.raises(SubmissionError, match="已截止"):
+        await SubmissionService(repository).edit("DML-EDIT-1", payload(), [], "demo-1", expected_version=1)
+
+
+async def test_edit_rejects_unowned_submission() -> None:
+    repository = FakeRepository()
+    repository.existing = owned_submission_document()
+    repository.owned = False
+    with pytest.raises(SubmissionError, match="不存在"):
+        await SubmissionService(repository).edit("DML-EDIT-1", payload(), [], "other-user", expected_version=1)
+
+
+async def test_submit_rejects_closed_survey() -> None:
+    repository = FakeRepository()
+    closed = published_version_document()
+    closed["closed_at"] = "2026-08-03T00:00:00Z"
+    repository.version_document = closed
+    with pytest.raises(SubmissionError, match="已截止"):
+        await SubmissionService(repository).submit(payload(), [])

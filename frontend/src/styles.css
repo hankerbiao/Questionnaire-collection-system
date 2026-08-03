@@ -172,6 +172,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .completion-visual { position: relative; width: 156px; height: 156px; display: grid; place-items: center; flex: 0 0 156px; }
 .completion-check { position: relative; z-index: 2; width: 92px; height: 92px; display: grid; place-items: center; border: 1px solid #b9d5ca; border-radius: 50%; background: #f2f8f5; box-shadow: 0 12px 28px rgba(19, 94, 69, 0.13); }
 .completion-check svg { color: var(--green); }
+.closed-check { position: relative; z-index: 2; width: 92px; height: 92px; display: grid; place-items: center; border: 1px solid #e3c6c2; border-radius: 50%; background: #fdf4f3; box-shadow: 0 12px 28px rgba(140, 46, 43, 0.12); }
+.closed-check svg { color: var(--red); }
 .completion-pulse { position: absolute; z-index: 0; width: 94px; height: 94px; border: 2px solid #6da892; border-radius: 50%; }
 .completion-piece { position: absolute; z-index: 1; left: calc(50% - 4px); top: calc(50% - 7px); width: 8px; height: 14px; border-radius: 2px; }
 .completion code { padding: 10px 14px; background: #edf3f0; border-radius: 5px; }
@@ -222,4 +224,60 @@ button:disabled { cursor: not-allowed; opacity: .48; }
   .catalog-toolbar > strong { grid-column: auto; }
   .score-picker { grid-template-columns: repeat(5, 1fr); }
   .score-picker button { height: 38px; }
+}
+
+/* ===== 我的提交（浮层） ===== */
+.mine-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(15, 28, 23, .42); backdrop-filter: blur(1.5px); }
+.mine-panel { width: min(560px, 100%); height: 100%; display: flex; flex-direction: column; background: var(--surface); border-left: 1px solid var(--line); box-shadow: -16px 0 40px rgba(15, 28, 23, .18); animation: mine-in .22s ease; }
+@keyframes mine-in { from { transform: translateX(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+.mine-panel > header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.mine-panel > header small { display: block; color: var(--muted); font-size: 12px; }
+.mine-panel > header h2 { margin: 2px 0 0; font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mine-list { flex: 1; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.mine-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 13px 15px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink); }
+.mine-row:hover { border-color: var(--green); box-shadow: 0 4px 14px rgba(19, 94, 69, .1); }
+.mine-row > div:first-child { min-width: 0; flex: 1; }
+.mine-row strong { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mine-row small { color: var(--muted); font-size: 12px; }
+.mine-row-meta { flex: none; display: flex; flex-wrap: wrap; gap: 8px 14px; color: var(--muted); font-size: 12px; }
+.mine-row-meta span { display: inline-flex; align-items: center; gap: 4px; }
+.mine-row-meta span:first-child { color: var(--green); font-weight: 600; }
+
+.mine-detail { flex: 1; overflow: auto; padding: 16px 20px 28px; }
+.mine-back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--muted); font-size: 13px; }
+.mine-back:hover { color: var(--green); border-color: var(--green); }
+.mine-detail-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 16px; color: var(--muted); font-size: 13px; }
+.mine-closed-tip { display: flex; align-items: center; gap: 8px; margin: 4px 0 18px; padding: 11px 14px; border: 1px solid #e3c6c2; border-radius: 8px; background: #fdf4f3; color: #9a3a35; font-size: 13px; }
+.mine-closed-tip svg { flex: none; }
+.mine-edit { margin: 4px 0 18px; }
+
+.mine-revisions { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 14px; }
+.mine-revisions h3, .mine-detail > h3 { margin: 0 0 12px; font-size: 15px; }
+.revision-block { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; margin-bottom: 10px; }
+.revision-head { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 0; background: #f7f9f8; color: var(--ink); text-align: left; font-size: 14px; }
+.revision-head span { font-weight: 600; }
+.revision-head small { margin-left: auto; color: var(--muted); font-size: 12px; }
+.revision-head svg { color: var(--muted); transition: transform .2s ease; }
+.revision-head svg.open { transform: rotate(90deg); }
+
+.mine-sections { display: flex; flex-direction: column; gap: 18px; padding: 14px; }
+.mine-sections section { border: 1px solid var(--line); border-radius: 9px; padding: 13px 15px; background: #fbfcfc; }
+.mine-sections h4 { margin: 0 0 8px; font-size: 13px; color: var(--green); }
+.mine-sections strong { font-weight: 600; }
+.mine-sections p { margin: 4px 0 0; color: #3a4541; line-height: 1.6; }
+.mine-sections pre { margin: 8px 0 0; padding: 10px 12px; background: #eef2f1; border-radius: 6px; font-size: 12px; overflow: auto; }
+.mine-sections article { padding: 9px 0; border-top: 1px dashed var(--line); }
+.mine-sections article:first-of-type { border-top: 0; }
+.mine-sections article header { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+.mine-sections article header b { margin-left: auto; color: var(--green); }
+
+.mine-images { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+.mine-image { display: block; width: 132px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; color: inherit; text-decoration: none; }
+.mine-image img { display: block; width: 100%; height: 98px; object-fit: cover; background: #eef2f1; }
+.mine-image figcaption { padding: 6px 8px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mine-file { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 7px; color: var(--muted); font-size: 12px; }
+
+@media (max-width: 720px) {
+  .mine-panel { width: 100%; border-left: 0; }
 }

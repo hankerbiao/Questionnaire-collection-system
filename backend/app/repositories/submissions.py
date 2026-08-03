@@ -3,7 +3,9 @@ from typing import Any
 
 from gridfs.errors import NoFile
 
-from pymongo import DESCENDING
+from pymongo import DESCENDING, ReturnDocument
+
+MAX_REVISIONS = 20
 
 
 class SubmissionRepositoryMixin:
@@ -57,6 +59,9 @@ class SubmissionRepositoryMixin:
             "survey_id": 1,
             "survey_version_id": 1,
             "submitted_at": 1,
+            "version": 1,
+            "updated_at": 1,
+            "revisions.edited_at": 1,
             "payload.profile.roleIds": 1,
             "payload.topPageIds": 1,
             "respondent": 1,
@@ -78,20 +83,74 @@ class SubmissionRepositoryMixin:
         query = {"_id": object_id} if object_id else {"submission_id": submission_id}
         return await self.submissions.find_one(query)
 
+    async def get_owned_submission(
+        self,
+        submission_id: str,
+        external_user_id: str,
+    ) -> dict[str, Any] | None:
+        object_id = self.object_id(submission_id)
+        query: dict[str, Any] = {"_id": object_id} if object_id else {"submission_id": submission_id}
+        query["respondent.external_user_id"] = external_user_id
+        query["respondent.auth_type"] = "external"
+        return await self.submissions.find_one(query)
+
+    async def replace_submission_payload(
+        self,
+        submission_id: str,
+        external_user_id: str,
+        expected_version: int,
+        payload: dict[str, Any],
+        attachments: list[dict[str, Any]],
+        request_digest: str,
+        snapshot: dict[str, Any],
+        submitted_at: Any,
+    ) -> dict[str, Any] | None:
+        object_id = self.object_id(submission_id)
+        query: dict[str, Any] = {"_id": object_id} if object_id else {"submission_id": submission_id}
+        query.update({
+            "respondent.external_user_id": external_user_id,
+            "respondent.auth_type": "external",
+            "version": expected_version,
+        })
+        return await self.submissions.find_one_and_update(
+            query,
+            {
+                "$set": {
+                    "payload": payload,
+                    "attachments": attachments,
+                    "request_digest": request_digest,
+                    "submitted_at": submitted_at,
+                    "updated_at": datetime.now(UTC),
+                },
+                "$inc": {"version": 1},
+                "$push": {"revisions": {"$each": [snapshot], "$slice": -MAX_REVISIONS}},
+            },
+            return_document=ReturnDocument.AFTER,
+        )
+
     async def delete_submission(self, submission_id: str) -> dict[str, Any] | None:
         object_id = self.object_id(submission_id)
         query = {"_id": object_id} if object_id else {"submission_id": submission_id}
         document = await self.submissions.find_one_and_delete(query)
         if document is None:
             return None
+        await self._delete_attachments(document)
+        return document
+
+    async def _delete_attachments(self, document: dict[str, Any]) -> None:
+        gridfs_ids: dict[Any, None] = {}
         for attachment in document.get("attachments", []):
-            if (gridfs_id := attachment.get("gridfs_id")) is None:
-                continue
+            if (gridfs_id := attachment.get("gridfs_id")) is not None:
+                gridfs_ids[gridfs_id] = None
+        for revision in document.get("revisions", []):
+            for attachment in revision.get("attachments", []):
+                if (gridfs_id := attachment.get("gridfs_id")) is not None:
+                    gridfs_ids[gridfs_id] = None
+        for gridfs_id in gridfs_ids:
             try:
                 await self.attachments.delete(gridfs_id)
             except NoFile:
                 pass
-        return document
 
     def list_all_submissions(self, filters: dict[str, Any]):
         projection = {

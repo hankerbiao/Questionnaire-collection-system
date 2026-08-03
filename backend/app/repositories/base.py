@@ -91,6 +91,10 @@ class RepositoryBase:
                 [("respondent.username", ASCENDING)],
                 name="ix_respondent_username",
             )
+            await self.submissions.create_index(
+                [("respondent.external_user_id", ASCENDING), ("_id", DESCENDING)],
+                name="ix_respondent_recent",
+            )
             self._indexes_ready = True
 
     @staticmethod

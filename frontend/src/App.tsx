@@ -4,13 +4,17 @@ import {
   ArrowRight,
   Check,
   ClipboardCheck,
+  History,
   LogOut,
   LoaderCircle,
   RotateCcw,
   UserRound,
+  X,
 } from 'lucide-react'
 import { CompletionScreen } from './features/survey/CompletionScreen'
-import { createDraft, emptyOtherReview, emptyPageReview, reconcileDraft, selectFavoritePage } from './features/survey/draft'
+import { ClosedScreen } from './features/survey/ClosedScreen'
+import { MySubmissionsPanel } from './features/survey/MySubmissionsPanel'
+import { createDraft, draftFromSubmission, emptyOtherReview, emptyPageReview, reconcileDraft, selectFavoritePage } from './features/survey/draft'
 import { SurveyStepContent } from './features/survey/SurveyStepContent'
 import { validateSurveyStep } from './features/survey/validation'
 import { loadPublishedSurvey } from './services/publicSurvey'
@@ -34,6 +38,7 @@ import { buildSubmission, surveyService } from './services/surveyService'
 import { loadUserSession, logoutUser } from './services/userSession'
 import type {
   AttachmentRecord,
+  MySubmissionDetail,
   OtherPageReview,
   PageDefinition,
   PageReview,
@@ -67,6 +72,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submissionId, setSubmissionId] = useState('')
+  const [mineOpen, setMineOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('全部')
   const [previews, setPreviews] = useState<Record<string, string>>({})
@@ -74,6 +80,8 @@ export default function App() {
   const [uploading, setUploading] = useState(false)
   const [draftNotice, setDraftNotice] = useState('')
   const ownerKey = ownerKeyForUser(userSession?.user?.externalUserId)
+  const [editing, setEditing] = useState<{ submissionId: string; version: number } | null>(null)
+  const activeOwnerKey = editing ? `${ownerKey}:edit:${editing.submissionId}` : ownerKey
 
   useEffect(() => {
     clearLegacyBrowserData()
@@ -97,8 +105,8 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (draft && userSession) saveDraft(draft, ownerKey)
-  }, [draft, ownerKey, userSession])
+    if (draft && userSession && !editing) saveDraft(draft, ownerKey)
+  }, [draft, ownerKey, userSession, editing])
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -127,6 +135,17 @@ export default function App() {
 
   if (loadingError) return <main className="load-state"><ClipboardCheck size={32} /><h1>问卷加载失败</h1><p>{loadingError}</p></main>
   if (!survey || !draft || !userSession) return <main className="load-state"><LoaderCircle className="spin" size={28} /><p>正在加载问卷…</p></main>
+
+  if (survey.closedAt && !submissionId) {
+    return (
+      <ClosedScreen
+        title={survey.title}
+        closedAt={survey.closedAt}
+        canViewMine={Boolean(userSession.user)}
+        onViewMine={() => setMineOpen(true)}
+      />
+    )
+  }
 
   const set = (changes: Partial<SurveyDraft>) => setDraft({ ...draft, ...changes, updatedAt: new Date().toISOString() })
   const updateTopSelection = (pageId: string) => {
@@ -177,11 +196,18 @@ export default function App() {
     }
     setSubmitting(true)
     try {
-      const records = await getAttachments(ownerKey)
-      const result = await surveyService.submit(buildSubmission(draft), records)
-      setSubmissionId(result.submissionId)
-      clearDraft(ownerKey)
-      await clearAttachments(ownerKey)
+      const records = await getAttachments(activeOwnerKey)
+      if (editing) {
+        await surveyService.edit(editing.submissionId, buildSubmission(draft), records, editing.version)
+        await clearAttachments(activeOwnerKey).catch(() => undefined)
+        setEditing(null)
+        setMineOpen(true)
+      } else {
+        const result = await surveyService.submit(buildSubmission(draft), records)
+        setSubmissionId(result.submissionId)
+        clearDraft(ownerKey)
+        await clearAttachments(ownerKey)
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '提交失败，请稍后重试。')
     } finally {
@@ -207,7 +233,7 @@ export default function App() {
         }
         additions.push(record)
       }
-      await putAttachments(additions, ownerKey)
+      await putAttachments(additions, activeOwnerKey)
       const attachmentMetas = additions.map((item) => ({
           id: item.id,
           questionId: item.questionId,
@@ -229,7 +255,7 @@ export default function App() {
   }
 
   const remove = async (id: string) => {
-    await removeAttachment(id, ownerKey).catch(() => undefined)
+    await removeAttachment(id, activeOwnerKey).catch(() => undefined)
     setPreviews((current) => {
       const next = { ...current }
       delete next[id]
@@ -250,8 +276,20 @@ export default function App() {
     setDraft(createDraft(survey.versionId))
   }
 
+  const startEdit = (detail: MySubmissionDetail) => {
+    setEditing({ submissionId: detail.id, version: detail.version })
+    setDraft(draftFromSubmission(detail.payload))
+    setMineOpen(false)
+  }
+
+  const cancelEdit = () => {
+    void clearAttachments(activeOwnerKey).catch(() => undefined)
+    setEditing(null)
+    setDraft(reconcileDraft(loadDraft(ownerKey) ?? createDraft(survey.versionId), survey))
+  }
+
   if (submissionId) {
-    return <CompletionScreen submissionId={submissionId} onRestart={() => { setSubmissionId(''); setDraft(createDraft(survey.versionId)) }} />
+    return <CompletionScreen submissionId={submissionId} onRestart={() => { setSubmissionId(''); setDraft(createDraft(survey.versionId)) }} onViewMine={userSession.user ? () => setMineOpen(true) : undefined} />
   }
 
   const progress = ((draft.currentStep + 1) / STEP_LABELS.length) * 100
@@ -265,7 +303,7 @@ export default function App() {
   return (
     <div className="survey-app">
       <header className="app-header">
-        <div><span>DML</span><strong>{survey.title}</strong></div>
+        <div><span>DML</span><strong>{survey.title}</strong>{editing ? <span className="edit-badge">修改中（第 {editing.version} 版）</span> : null}</div>
         <div className="header-progress"><span style={{ width: `${progress}%` }} /></div>
         <div className="header-actions">
           {userSession.user ? (
@@ -273,6 +311,8 @@ export default function App() {
           ) : userSession.ssoEnabled ? (
             <span className="login-message">登录填写，有机会获得奖励</span>
           ) : <span className="anonymous-user">匿名填写</span>}
+          {userSession.user ? <button type="button" className="icon-button" title="我的提交" onClick={() => setMineOpen(true)}><History size={18} /></button> : null}
+          {editing ? <button type="button" className="icon-button" title="取消修改" onClick={cancelEdit}><X size={18} /></button> : null}
           {userSession.user ? <button type="button" className="icon-button" title="退出登录" onClick={() => logoutUser().then(() => window.location.reload()).catch((reason) => setError(reason.message))}><LogOut size={18} /></button> : null}
           <button type="button" className="icon-button" title="重新填写" onClick={reset}><RotateCcw size={18} /></button>
         </div>
@@ -316,11 +356,12 @@ export default function App() {
             {error ? <p className="validation-message" role="alert">{error}</p> : null}
             <footer className="question-footer">
               <button type="button" className="secondary-button" disabled={draft.currentStep === 0 || submitting} onClick={() => set({ currentStep: draft.currentStep - 1 })}><ArrowLeft size={17} />返回</button>
-              <button type="button" className="primary-button" disabled={submitting} onClick={goNext}>{submitting ? <><LoaderCircle className="spin" size={17} />正在提交</> : draft.currentStep === 9 ? <>确认提交<Check size={17} /></> : <>下一步<ArrowRight size={17} /></>}</button>
+              <button type="button" className="primary-button" disabled={submitting} onClick={goNext}>{submitting ? <><LoaderCircle className="spin" size={17} />{editing ? '正在保存' : '正在提交'}</> : draft.currentStep === 9 ? (editing ? <>保存修改<Check size={17} /></> : <>确认提交<Check size={17} /></>) : <>下一步<ArrowRight size={17} /></>}</button>
             </footer>
           </article>
         </main>
       </div>
+      {mineOpen ? <MySubmissionsPanel onClose={() => setMineOpen(false)} onEdit={startEdit} /> : null}
     </div>
   )
 }

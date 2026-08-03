@@ -8,6 +8,7 @@ import type { SubmissionDetail, SubmissionRow, SurveyVersionConfig } from './typ
 vi.mock('./api', () => ({ adminApi: {
   session: vi.fn(), draft: vi.fn(), stats: vi.fn(), submissionCatalog: vi.fn(),
   submissions: vi.fn(), detail: vi.fn(), deleteSubmission: vi.fn(), saveDraft: vi.fn(), publish: vi.fn(),
+  versions: vi.fn(), closeCollection: vi.fn(), reopenCollection: vi.fn(),
   exportUrl: vi.fn(() => '#'), jsonUrl: vi.fn(() => '#'), attachmentUrl: vi.fn(() => '#'),
 } }))
 
@@ -25,6 +26,7 @@ beforeEach(() => {
   vi.mocked(adminApi.stats).mockResolvedValue({ total: 0, last7Days: 0, withAttachments: 0 })
   vi.mocked(adminApi.submissionCatalog).mockResolvedValue({ roles: [], pages: [] })
   vi.mocked(adminApi.submissions).mockResolvedValue({ items: [] })
+  vi.mocked(adminApi.versions).mockResolvedValue([{ versionId: 'v1', version: 1, status: 'published', publishedAt: null, closedAt: null, submissionCount: 0 }])
 })
 
 it('edits the page and feature catalog', async () => {

@@ -49,6 +49,7 @@ class SurveyVersion(ApiModel):
     created_at: datetime | None = Field(default=None, alias="createdAt")
     updated_at: datetime | None = Field(default=None, alias="updatedAt")
     published_at: datetime | None = Field(default=None, alias="publishedAt")
+    closed_at: datetime | None = Field(default=None, alias="closedAt")
 
     @model_validator(mode="after")
     def validate_structure(self) -> "SurveyVersion":
@@ -85,4 +86,5 @@ class SurveyVersionSummary(ApiModel):
     version: int
     status: str
     published_at: datetime | None = Field(alias="publishedAt")
+    closed_at: datetime | None = Field(default=None, alias="closedAt")
     submission_count: int = Field(alias="submissionCount")
