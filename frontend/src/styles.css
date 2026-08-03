@@ -305,6 +305,12 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .mine-success-check path { fill: none; stroke: var(--green); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 60; stroke-dashoffset: 60; animation: mine-draw-check .35s .45s ease forwards; }
 .mine-success-overlay h3 { margin: 0; font-size: 19px; font-weight: 600; color: var(--ink); animation: mine-pop-in .3s .5s ease both; }
 .mine-success-overlay p { margin: 0; color: var(--muted); font-size: 14px; animation: mine-pop-in .3s .6s ease both; }
+.app-success-overlay { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: var(--surface); animation: mine-fade-in .2s ease; }
+.app-success-check { width: 96px; height: 96px; }
+.app-success-check circle { fill: none; stroke: var(--green); stroke-width: 5; stroke-dasharray: 276; stroke-dashoffset: 276; animation: mine-draw-circle .5s ease forwards; }
+.app-success-check path { fill: none; stroke: var(--green); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 60; stroke-dashoffset: 60; animation: mine-draw-check .35s .45s ease forwards; }
+.app-success-overlay h3 { margin: 0; font-size: 19px; font-weight: 600; color: var(--ink); animation: mine-pop-in .3s .5s ease both; }
+.app-success-overlay p { margin: 0; color: var(--muted); font-size: 14px; animation: mine-pop-in .3s .6s ease both; }
 @keyframes mine-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mine-pop-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes mine-draw-circle { to { stroke-dashoffset: 0; } }

@@ -73,6 +73,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submissionId, setSubmissionId] = useState('')
+  const [editSuccess, setEditSuccess] = useState('')
   const [mineOpen, setMineOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('全部')
@@ -202,13 +203,45 @@ export default function App() {
         await surveyService.edit(editing.submissionId, buildSubmission(draft), records, editing.version)
         await clearAttachments(activeOwnerKey).catch(() => undefined)
         setEditing(null)
-        setMineOpen(true)
+        setEditSuccess('已保存修改')
+        window.setTimeout(() => {
+          setEditSuccess('')
+          setMineOpen(true)
+        }, 1600)
       } else {
         const result = await surveyService.submit(buildSubmission(draft), records)
         setSubmissionId(result.submissionId)
         clearDraft(ownerKey)
         await clearAttachments(ownerKey)
       }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '提交失败，请稍后重试。')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const submitEditNow = async () => {
+    if (!editing) return
+    for (let step = 0; step < STEP_LABELS.length; step += 1) {
+      const invalid = validateStep(step)
+      if (invalid) {
+        set({ currentStep: step })
+        setError(invalid)
+        return
+      }
+    }
+    setSubmitting(true)
+    try {
+      const records = await getAttachments(activeOwnerKey)
+      await surveyService.edit(editing.submissionId, buildSubmission(draft), records, editing.version)
+      await clearAttachments(activeOwnerKey).catch(() => undefined)
+      setEditing(null)
+      setEditSuccess('已保存修改')
+      window.setTimeout(() => {
+        setEditSuccess('')
+        setMineOpen(true)
+      }, 1600)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '提交失败，请稍后重试。')
     } finally {
@@ -362,12 +395,25 @@ export default function App() {
             {error ? <p className="validation-message" role="alert">{error}</p> : null}
             <footer className="question-footer">
               <button type="button" className="secondary-button" disabled={draft.currentStep === 0 || submitting} onClick={() => set({ currentStep: draft.currentStep - 1 })}><ArrowLeft size={17} />返回</button>
+              {editing ? (
+                <button type="button" className="secondary-button" disabled={submitting} onClick={() => void submitEditNow()}><Check size={17} />立即保存提交</button>
+              ) : null}
               <button type="button" className="primary-button" disabled={submitting} onClick={goNext}>{submitting ? <><LoaderCircle className="spin" size={17} />{editing ? '正在保存' : '正在提交'}</> : draft.currentStep === 9 ? (editing ? <>保存修改<Check size={17} /></> : <>确认提交<Check size={17} /></>) : <>下一步<ArrowRight size={17} /></>}</button>
             </footer>
           </article>
         </main>
       </div>
       {mineOpen ? <MySubmissionsPanel onClose={() => setMineOpen(false)} onEdit={startEdit} /> : null}
+      {editSuccess ? (
+        <div className="app-success-overlay" role="status" aria-live="polite">
+          <svg className="app-success-check" viewBox="0 0 100 100" aria-hidden="true">
+            <circle cx="50" cy="50" r="44" />
+            <path d="M30 52 L44 66 L72 36" />
+          </svg>
+          <h3>提交成功</h3>
+          <p>{editSuccess}</p>
+        </div>
+      ) : null}
     </div>
   )
 }
