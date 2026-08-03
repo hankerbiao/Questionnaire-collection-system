@@ -62,7 +62,7 @@ export class HttpSurveyService {
     const records = new Map(attachments.map((item) => [item.id, item]))
     const form = new FormData()
     form.append('payload', JSON.stringify(payload))
-    form.append('expectedVersion', String(expectedVersion))
+    form.append('expected_version', String(expectedVersion))
     for (const meta of payload.issueEvidence.attachments) {
       const record = records.get(meta.id)
       if (record) form.append('files', dataUrlToBlob(record), record.id)
