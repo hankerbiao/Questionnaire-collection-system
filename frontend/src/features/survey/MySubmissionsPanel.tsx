@@ -1,7 +1,8 @@
-import { CalendarX2, ChevronRight, Clock, FileImage, Pencil, X } from 'lucide-react'
+import { CalendarX2, ChevronRight, Clock, FileImage, Pencil, RotateCcw, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { getMySubmission, getMySubmissions, myAttachmentUrl } from '../../services/userSubmissions'
-import type { MySubmissionDetail, MySubmissionRow, SurveySubmission, SubmissionAttachment } from '../../types'
+import { surveyService } from '../../services/surveyService'
+import type { MySubmissionDetail, MySubmissionRow, SubmissionAttachment, SubmissionRevision, SurveySubmission } from '../../types'
 
 type View = { kind: 'list' } | { kind: 'detail'; id: string }
 
@@ -30,6 +31,22 @@ function PayloadSections({ detailId, payload, attachments }: { detailId: string;
   )
 }
 
+function buildResubmitPayload(revision: SubmissionRevision, current: MySubmissionDetail): SurveySubmission {
+  return {
+    ...revision.payload,
+    issueEvidence: {
+      description: current.payload.issueEvidence.description,
+      attachments: current.attachments.map((item) => ({
+        id: item.id,
+        questionId: 'issue-evidence',
+        name: item.name,
+        type: item.type,
+        size: item.size,
+      })),
+    },
+  }
+}
+
 export function MySubmissionsPanel({ onClose, onEdit }: { onClose: () => void; onEdit: (detail: MySubmissionDetail) => void }) {
   const [view, setView] = useState<View>({ kind: 'list' })
   const [rows, setRows] = useState<MySubmissionRow[]>([])
@@ -38,6 +55,8 @@ export function MySubmissionsPanel({ onClose, onEdit }: { onClose: () => void; o
   const [error, setError] = useState('')
   const [detail, setDetail] = useState<MySubmissionDetail>()
   const [openRevision, setOpenRevision] = useState<number | null>(null)
+  const [resubmitting, setResubmitting] = useState<number | null>(null)
+  const [success, setSuccess] = useState('')
 
   const loadList = useCallback(async (append = false, cursor?: string) => {
     setLoading(true)
@@ -70,9 +89,36 @@ export function MySubmissionsPanel({ onClose, onEdit }: { onClose: () => void; o
     }
   }, [])
 
+  const resubmit = async (revision: SubmissionRevision) => {
+    if (detail == null || detail.surveyClosed) return
+    if (!window.confirm(`确定要基于第 ${revision.index} 版的内容创建一次新的提交吗？\n历史附件已过期无法恢复，将沿用当前版本附件。`)) return
+    setResubmitting(revision.index)
+    setError('')
+    try {
+      const payload = buildResubmitPayload(revision, detail)
+      await surveyService.edit(detail.id, payload, [], detail.version)
+      setSuccess(`已基于第 ${revision.index} 版创建新提交`)
+      window.setTimeout(() => onClose(), 1600)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '提交失败')
+    } finally {
+      setResubmitting(null)
+    }
+  }
+
   return (
-    <div className="mine-backdrop" onClick={loading ? undefined : onClose}>
+    <div className="mine-backdrop" onClick={loading || success ? undefined : onClose}>
       <aside className="mine-panel" onClick={(event) => event.stopPropagation()}>
+        {success ? (
+          <div className="mine-success-overlay" role="status" aria-live="polite">
+            <svg className="mine-success-check" viewBox="0 0 100 100" aria-hidden="true">
+              <circle cx="50" cy="50" r="44" />
+              <path d="M30 52 L44 66 L72 36" />
+            </svg>
+            <h3>提交成功</h3>
+            <p>{success}</p>
+          </div>
+        ) : null}
         <header>
           <div><small>我的提交</small><h2>{view.kind === 'detail' && detail ? detail.submissionId : '填写记录'}</h2></div>
           <button className="icon-control" title="关闭" disabled={loading} onClick={onClose}><X size={18} /></button>
@@ -122,7 +168,16 @@ export function MySubmissionsPanel({ onClose, onEdit }: { onClose: () => void; o
                       <small>{new Date(revision.editedAt).toLocaleString('zh-CN')}</small>
                       <ChevronRight size={15} className={openRevision === revision.index ? 'open' : ''} />
                     </button>
-                    {openRevision === revision.index ? <PayloadSections detailId={detail.id} payload={revision.payload} attachments={revision.attachments} /> : null}
+                    {openRevision === revision.index ? (
+                      <div className="revision-body">
+                        <PayloadSections detailId={detail.id} payload={revision.payload} attachments={revision.attachments} />
+                        <div className="revision-actions">
+                          <button type="button" className="mine-resubmit" disabled={detail.surveyClosed || loading || resubmitting === revision.index} onClick={() => void resubmit(revision)}>
+                            <RotateCcw size={14} />{resubmitting === revision.index ? '提交中…' : '立即提交此版本'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

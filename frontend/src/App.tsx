@@ -18,6 +18,7 @@ import { createDraft, draftFromSubmission, emptyOtherReview, emptyPageReview, re
 import { SurveyStepContent } from './features/survey/SurveyStepContent'
 import { validateSurveyStep } from './features/survey/validation'
 import { loadPublishedSurvey } from './services/publicSurvey'
+import { myAttachmentUrl } from './services/userSubmissions'
 import {
   clearAttachments,
   clearDraft,
@@ -277,8 +278,13 @@ export default function App() {
   }
 
   const startEdit = (detail: MySubmissionDetail) => {
+    const next = draftFromSubmission(detail.payload)
+    const previewEntries = detail.attachments
+      .filter((attachment) => attachment.available !== false)
+      .map((attachment) => [attachment.attachmentId, myAttachmentUrl(detail.id, attachment.id)] as const)
     setEditing({ submissionId: detail.id, version: detail.version })
-    setDraft(draftFromSubmission(detail.payload))
+    setDraft(next)
+    setPreviews(Object.fromEntries(previewEntries))
     setMineOpen(false)
   }
 
