@@ -5,19 +5,28 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_root=$(dirname "$script_dir")
 compose="$script_dir/compose.sh"
 env_file="$script_dir/.env"
+# Records the git HEAD of the last successful deploy; used by --auto to decide
+# which service images need a rebuild.
+deploy_marker="$script_dir/.last_deploy_ref"
 target=all
 target_set=false
 run_checks=false
+auto_mode=false
 
 usage() {
   cat <<'EOF'
-Usage: ./docker/redeploy.sh [frontend|backend|all] [--check]
+Usage: ./docker/redeploy.sh [frontend|backend|all] [--check] [--auto] [--full]
 
 Rebuild changed application images and replace the selected containers.
 The default target is "all"; Docker cache skips unchanged build layers.
 
 Options:
-  --check     Run tests before deployment (and frontend lint when applicable)
+  --check   Run tests before deployment (and frontend lint when applicable)
+  --auto    Only rebuild a service when its source tree actually changed since
+            the last deploy. Falls back to a full build when git is unavailable
+            or the target is not "all". Env/.env changes are always applied.
+  --full    Force a full rebuild of every selected service (this is the default
+            when --auto is omitted, and for explicit frontend/backend targets)
   -h, --help  Show this help
 EOF
 }
@@ -34,6 +43,8 @@ for arg in "$@"; do
       target_set=true
       ;;
     --check) run_checks=true ;;
+    --auto) auto_mode=true ;;
+    --full) auto_mode=false ;;
     -h|--help)
       usage
       exit 0
@@ -147,6 +158,26 @@ print_service_addresses() {
   fi
 }
 
+git_available() {
+  git -C "$project_root" rev-parse >/dev/null 2>&1
+}
+
+# Returns 0 when $1 (relative to project root) changed since the last deploy or
+# has uncommitted modifications. Falls back to "changed" when git is missing.
+service_changed() {
+  dir=$1
+  if ! git_available; then return 0; fi
+  if ! git -C "$project_root" diff --quiet -- "$dir" 2>/dev/null; then return 0; fi
+  if [ -n "$(git -C "$project_root" status --porcelain -- "$dir" 2>/dev/null)" ]; then return 0; fi
+  if [ -f "$deploy_marker" ]; then
+    last=$(cat "$deploy_marker" 2>/dev/null)
+    if [ -n "$last" ] && git -C "$project_root" rev-parse -q --verify "$last" >/dev/null 2>&1; then
+      if ! git -C "$project_root" diff --quiet "$last" HEAD -- "$dir" 2>/dev/null; then return 0; fi
+    fi
+  fi
+  return 1
+}
+
 if [ "$run_checks" = true ]; then
   if includes_frontend; then
     echo "Running frontend tests and lint..."
@@ -161,24 +192,43 @@ else
   echo "Skipping optional tests (use --check to enable)."
 fi
 
-echo "Building $target image target with Docker cache..."
-case "$target" in
-  frontend) "$compose" build frontend ;;
-  backend) "$compose" build backend ;;
-  all) "$compose" build backend frontend ;;
-esac
+# Decide which services need a rebuild. We always re-run `up` afterwards so
+# compose still applies .env / environment changes even when an image is not
+# rebuilt.
+build_backend=true
+build_frontend=true
+if [ "$auto_mode" = true ] && [ "$target" = all ] && git_available; then
+  build_backend=false
+  build_frontend=false
+  service_changed backend && build_backend=true
+  service_changed frontend && build_frontend=true
+  echo "Auto mode: rebuild backend=$build_backend frontend=$build_frontend"
+fi
 
-# Start the backend first so a full deployment never exposes a frontend whose
-# API dependency is still unavailable.
+deploy_service() {
+  svc=$1
+  do_build=$2
+  # Build anyway if no image exists yet (first deploy or manual image prune).
+  if [ "$do_build" = false ] && [ -z "$("$compose" images -q "$svc" 2>/dev/null)" ]; then
+    do_build=true
+  fi
+
+  if [ "$do_build" = true ]; then
+    echo "Rebuilding and updating the $svc container..."
+    "$compose" up -d --no-deps --build "$svc"
+  else
+    echo "Updating the $svc container (image unchanged)..."
+    "$compose" up -d --no-deps "$svc"
+  fi
+}
+
 if includes_backend; then
-  echo "Updating the backend container..."
-  "$compose" up -d --no-deps backend
+  deploy_service backend "$build_backend"
   wait_for_service backend 60
 fi
 
 if includes_frontend; then
-  echo "Updating the frontend container..."
-  "$compose" up -d --no-deps frontend
+  deploy_service frontend "$build_frontend"
   wait_for_service frontend 45
 fi
 
@@ -187,3 +237,8 @@ web_port=$(printf '%s' "${web_port:-8080}" | sed "s/[[:space:]]*#.*$//; s/^[\"']
 
 echo "Deployment complete ($target)."
 print_service_addresses
+
+# Record the deployed ref so the next --auto run can diff against it.
+if git_available; then
+  git -C "$project_root" rev-parse HEAD > "$deploy_marker" 2>/dev/null || true
+fi

@@ -7,7 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen --no-dev
+# Cache the uv download cache on the host so repeated `uv sync` is fast.
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 COPY backend/app ./app
 
 RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app

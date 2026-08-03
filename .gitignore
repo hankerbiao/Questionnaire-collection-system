@@ -1,6 +1,7 @@
 .DS_Store
 .env
 docker/.env
+docker/.last_deploy_ref
 .codegraph/
 .cursor/
 .workbuddy/

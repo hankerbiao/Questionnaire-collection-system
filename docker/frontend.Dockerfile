@@ -2,9 +2,10 @@ FROM node:22-alpine AS build
 
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+# Cache npm tarballs on the host so repeated `npm ci` does not re-download.
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY frontend/ ./
-RUN npm run build
+RUN --mount=type=cache,target=/root/.npm npm run build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 
