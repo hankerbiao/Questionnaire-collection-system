@@ -66,17 +66,14 @@ describe('fixed survey flow', () => {
     expect(await screen.findByRole('heading', { name: '选择系统内你会用到的页面' })).toBeInTheDocument()
   })
 
-  it.each([
-    { saved: '', expected: '1. 我负责哪些项目和团队：' },
-    { saved: '这是已经保存的角色与工作背景，不应被预制模板覆盖。', expected: '这是已经保存的角色与工作背景，不应被预制模板覆盖。' },
-  ])('reconciles a stored role context without overwriting user content', async ({ saved, expected }) => {
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(storedDraft(saved)))
+  it('starts a fresh form on load instead of restoring a stored draft', async () => {
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(storedDraft('这是已经保存的角色与工作背景，不应被预制模板覆盖。')))
 
     render(<App />)
 
     const context = await screen.findByPlaceholderText(/至少 100 字/) as HTMLTextAreaElement
-    expect(context.value).toContain(expected)
-    if (saved) expect(context.value).toBe(saved)
+    expect(context.value).toContain('1. 我负责哪些项目和团队：')
+    expect(context.value).not.toContain('这是已经保存的角色与工作背景，不应被预制模板覆盖。')
   })
 
   it('requires exactly three pages and opens sequential page review', async () => {

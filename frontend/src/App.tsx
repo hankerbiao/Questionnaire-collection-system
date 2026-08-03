@@ -23,16 +23,12 @@ import {
   clearAttachments,
   clearDraft,
   clearLegacyBrowserData,
-  attachmentRecordsForDraft,
   fileToDataUrl,
   getAttachments,
-  loadDraft,
-  claimPendingAnonymousDraft,
   ownerKeyForUser,
   pruneAttachments,
   putAttachments,
   removeAttachment,
-  saveDraft,
   validateAttachmentFiles,
 } from './services/storage'
 import { buildSubmission, surveyService } from './services/surveyService'
@@ -80,7 +76,6 @@ export default function App() {
   const [previews, setPreviews] = useState<Record<string, string>>({})
   const [attachmentError, setAttachmentError] = useState('')
   const [uploading, setUploading] = useState(false)
-  const [draftNotice, setDraftNotice] = useState('')
   const ownerKey = ownerKeyForUser(userSession?.user?.externalUserId)
   const [editing, setEditing] = useState<{ submissionId: string; version: number } | null>(null)
   const activeOwnerKey = editing ? `${ownerKey}:edit:${editing.submissionId}` : ownerKey
@@ -90,25 +85,14 @@ export default function App() {
     Promise.all([loadUserSession(), loadPublishedSurvey()]).then(async ([nextSession, published]) => {
       if (!published) throw new Error('暂时无法加载问卷，请检查网络后刷新页面。')
       const nextOwnerKey = ownerKeyForUser(nextSession.user?.externalUserId)
-      if (nextSession.user && await claimPendingAnonymousDraft(nextOwnerKey) === 'conflict') {
-        setDraftNotice('登录账号已有保存的草稿，当前继续账号草稿；刚才的匿名草稿仍已保留。')
-      }
-      const records = await getAttachments(nextOwnerKey).catch(() => [])
-      const restored = loadDraft(nextOwnerKey)
-      const nextDraft = reconcileDraft(restored ?? createDraft(published.versionId), published)
-      const attachmentIds = new Set(nextDraft.attachments.map((attachment) => attachment.id))
-      const activeRecords = attachmentRecordsForDraft(records, attachmentIds)
-      await pruneAttachments(attachmentIds, nextOwnerKey).catch(() => undefined)
+      const nextDraft = reconcileDraft(createDraft(published.versionId), published)
+      await pruneAttachments(new Set(nextDraft.attachments.map((attachment) => attachment.id)), nextOwnerKey).catch(() => undefined)
       setUserSession(nextSession)
       setSurvey(published)
       setDraft(nextDraft)
-      setPreviews(Object.fromEntries(activeRecords.map((record) => [record.id, record.dataUrl])))
+      setPreviews({})
     }).catch((reason) => setLoadingError(reason instanceof Error ? reason.message : '问卷加载失败'))
   }, [])
-
-  useEffect(() => {
-    if (draft && userSession && !editing) saveDraft(draft, ownerKey)
-  }, [draft, ownerKey, userSession, editing])
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -324,7 +308,7 @@ export default function App() {
   const cancelEdit = () => {
     void clearAttachments(activeOwnerKey).catch(() => undefined)
     setEditing(null)
-    setDraft(reconcileDraft(loadDraft(ownerKey) ?? createDraft(survey.versionId), survey))
+    setDraft(reconcileDraft(createDraft(survey.versionId), survey))
   }
 
   if (submissionId) {
@@ -356,7 +340,6 @@ export default function App() {
           <button type="button" className="icon-button" title="重新填写" onClick={reset}><RotateCcw size={18} /></button>
         </div>
       </header>
-      {draftNotice ? <div className="draft-notice" role="status">{draftNotice}</div> : null}
       <div className="survey-layout">
         <aside className="step-rail" aria-label="问卷进度">
           {STEP_LABELS.map((label, index) => (
